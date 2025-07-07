@@ -8,13 +8,12 @@ Usage:
     python manage.py init_yearly_stats [--clear] [--batch-size=100]
 """
 
-from decimal import Decimal
-
 from django.core.management.base import BaseCommand
 from django.db import models, transaction
 from django.db.models import Avg, Count, Max, Min, Sum
 
 from core_django.models.models import DailyWeather, WeatherStation, YearlyWeatherStats
+from core_django.utils.units import round_to_decimal
 
 
 class Command(BaseCommand):
@@ -243,12 +242,12 @@ class Command(BaseCommand):
         yearly_stats = YearlyWeatherStats(
             station=station,
             year=year,
-            avg_max_temp=self.round_decimal(aggregates["avg_max_temp"]),
-            avg_min_temp=self.round_decimal(aggregates["avg_min_temp"]),
+            avg_max_temp=round_to_decimal(aggregates["avg_max_temp"]),
+            avg_min_temp=round_to_decimal(aggregates["avg_min_temp"]),
             max_temp=aggregates["max_temp"],
             min_temp=aggregates["min_temp"],
             total_precipitation=aggregates["total_precipitation"],
-            avg_precipitation=self.round_decimal(aggregates["avg_precipitation"]),
+            avg_precipitation=round_to_decimal(aggregates["avg_precipitation"]),
             max_precipitation=aggregates["max_precipitation"],
             total_records=aggregates["total_records"],
             records_with_temp=aggregates["records_with_temp"],
@@ -264,12 +263,6 @@ class Command(BaseCommand):
             )
 
         return yearly_stats
-
-    def round_decimal(self, value: float | None) -> Decimal | None:
-        """Round a float value to 1 decimal place for storage."""
-        if value is None:
-            return None
-        return Decimal(str(round(value, 1)))
 
     def save_yearly_stats_batch(self, yearly_stats: list[YearlyWeatherStats]):
         """Save a batch of yearly statistics to the database."""

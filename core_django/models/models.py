@@ -12,6 +12,14 @@ This module contains the following models:
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
+from core_django.utils.units import (
+    calculate_data_completeness,
+    decimal_tenths_to_celsius,
+    decimal_tenths_to_millimeters,
+    tenths_to_celsius,
+    tenths_to_millimeters,
+)
+
 
 class WeatherStation(models.Model):
     """
@@ -127,17 +135,17 @@ class DailyWeather(models.Model):
     @property
     def max_temp_celsius(self):
         """Convert max temperature from tenths of degrees to degrees Celsius."""
-        return self.max_temp / 10.0 if self.max_temp is not None else None
+        return tenths_to_celsius(self.max_temp)
 
     @property
     def min_temp_celsius(self):
         """Convert min temperature from tenths of degrees to degrees Celsius."""
-        return self.min_temp / 10.0 if self.min_temp is not None else None
+        return tenths_to_celsius(self.min_temp)
 
     @property
     def precipitation_mm(self):
         """Convert precipitation from tenths of millimeters to millimeters."""
-        return self.precipitation / 10.0 if self.precipitation is not None else None
+        return tenths_to_millimeters(self.precipitation)
 
     def clean(self):
         """Validate that max_temp >= min_temp when both are present."""
@@ -267,67 +275,49 @@ class YearlyWeatherStats(models.Model):
     @property
     def avg_max_temp_celsius(self):
         """Convert average max temperature to degrees Celsius."""
-        return (
-            float(self.avg_max_temp) / 10.0 if self.avg_max_temp is not None else None
-        )
+        return decimal_tenths_to_celsius(self.avg_max_temp)
 
     @property
     def avg_min_temp_celsius(self):
         """Convert average min temperature to degrees Celsius."""
-        return (
-            float(self.avg_min_temp) / 10.0 if self.avg_min_temp is not None else None
-        )
+        return decimal_tenths_to_celsius(self.avg_min_temp)
 
     @property
     def max_temp_celsius(self):
         """Convert max temperature to degrees Celsius."""
-        return self.max_temp / 10.0 if self.max_temp is not None else None
+        return tenths_to_celsius(self.max_temp)
 
     @property
     def min_temp_celsius(self):
         """Convert min temperature to degrees Celsius."""
-        return self.min_temp / 10.0 if self.min_temp is not None else None
+        return tenths_to_celsius(self.min_temp)
 
     @property
     def total_precipitation_mm(self):
         """Convert total precipitation to millimeters."""
-        return (
-            self.total_precipitation / 10.0
-            if self.total_precipitation is not None
-            else None
-        )
+        return tenths_to_millimeters(self.total_precipitation)
 
     @property
     def avg_precipitation_mm(self):
         """Convert average precipitation to millimeters."""
-        return (
-            float(self.avg_precipitation) / 10.0
-            if self.avg_precipitation is not None
-            else None
-        )
+        return decimal_tenths_to_millimeters(self.avg_precipitation)
 
     @property
     def max_precipitation_mm(self):
         """Convert max precipitation to millimeters."""
-        return (
-            self.max_precipitation / 10.0
-            if self.max_precipitation is not None
-            else None
-        )
+        return tenths_to_millimeters(self.max_precipitation)
 
     @property
     def data_completeness_temp(self):
         """Calculate temperature data completeness as a percentage."""
-        if self.total_records == 0:
-            return 0.0
-        return (self.records_with_temp / self.total_records) * 100.0
+        return calculate_data_completeness(self.records_with_temp, self.total_records)
 
     @property
     def data_completeness_precipitation(self):
         """Calculate precipitation data completeness as a percentage."""
-        if self.total_records == 0:
-            return 0.0
-        return (self.records_with_precipitation / self.total_records) * 100.0
+        return calculate_data_completeness(
+            self.records_with_precipitation, self.total_records
+        )
 
 
 class CropYield(models.Model):
