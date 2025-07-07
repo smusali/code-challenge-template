@@ -5,8 +5,8 @@ description = "A comprehensive data engineering solution for ingesting, analyzin
 authors = ["Samir Musali <samir.musali@gmail.com>"]
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/smusali/code-challenge-template"
-repository = "https://github.com/smusali/code-challenge-template"
+homepage = "https://github.com/smusali/weather-data-engineering-api"
+repository = "https://github.com/smusali/weather-data-engineering-api"
 packages = [{include = "weather_api"}, {include = "core_django"}]
 
 [tool.poetry.dependencies]

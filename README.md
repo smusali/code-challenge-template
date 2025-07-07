@@ -45,8 +45,8 @@ This project implements a complete data pipeline for weather station data, featu
 1. **Clone and setup**
 
    ```bash
-   git clone https://github.com/smusali/code-challenge-template.git
-   cd code-challenge-template
+git clone https://github.com/smusali/weather-data-engineering-api.git
+cd weather-data-engineering-api
    ```
 
 2. **Create virtual environment**
@@ -282,7 +282,7 @@ docker-compose run --rm web pytest
 ## 🏗️ Project Structure
 
 ```
-code-challenge-template/
+weather-data-engineering-api/
 ├── core_django/          # Django ORM models
 │   ├── core/             # Django settings and config
 │   ├── models/           # Data models
