@@ -99,4 +99,4 @@ yarn-error.log*
 data/export/
 prometheus_data/
 grafana_data/
-postgres_data/ 
+postgres_data/

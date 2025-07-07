@@ -7,17 +7,17 @@ rule_files:
   # - "second_rules.yml"
 
 scrape_configs:
-  - job_name: 'prometheus'
+  - job_name: "prometheus"
     static_configs:
-      - targets: ['localhost:9090']
+      - targets: ["localhost:9090"]
 
-  - job_name: 'weather-api'
+  - job_name: "weather-api"
     static_configs:
-      - targets: ['web:8000']
-    metrics_path: '/metrics'
+      - targets: ["web:8000"]
+    metrics_path: "/metrics"
     scrape_interval: 30s
 
-  - job_name: 'postgres'
+  - job_name: "postgres"
     static_configs:
-      - targets: ['db:5432']
-    scrape_interval: 30s 
+      - targets: ["db:5432"]
+    scrape_interval: 30s

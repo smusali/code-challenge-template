@@ -1,6 +1,6 @@
 # Docker Compose for Weather Data Engineering API
 # Development and local testing environment
-version: '3.8'
+version: "3.8"
 
 services:
   # PostgreSQL Database
@@ -18,7 +18,11 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-weather_user} -d ${POSTGRES_DB:-weather_db}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-weather_user} -d ${POSTGRES_DB:-weather_db}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -98,7 +102,16 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: ["python", "-m", "scripts.ingest_wx", "--src", "/app/wx_data", "--db-url", "postgresql://weather_user:weather_pass@db:5432/weather_db"]
+    command:
+      [
+        "python",
+        "-m",
+        "scripts.ingest_wx",
+        "--src",
+        "/app/wx_data",
+        "--db-url",
+        "postgresql://weather_user:weather_pass@db:5432/weather_db",
+      ]
     networks:
       - weather-network
 
@@ -144,12 +157,12 @@ services:
       - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--storage.tsdb.retention.time=200h'
-      - '--web.enable-lifecycle'
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--storage.tsdb.retention.time=200h"
+      - "--web.enable-lifecycle"
     networks:
       - weather-network
 
@@ -190,4 +203,4 @@ networks:
     ipam:
       driver: default
       config:
-        - subnet: 172.20.0.0/16 
+        - subnet: 172.20.0.0/16

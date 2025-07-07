@@ -17,7 +17,7 @@ ALTER DATABASE weather_db SET log_statement = 'all';
 ALTER DATABASE weather_db SET log_min_duration_statement = 1000;
 
 -- Create read-only user for analytics/reporting
-CREATE USER weather_reader WITH PASSWORD 'reader_pass';
+CREATE USER weather_reader WITH PASSWORD 'reader_pass'; -- pragma: allowlist secret
 GRANT CONNECT ON DATABASE weather_db TO weather_reader;
 GRANT USAGE ON SCHEMA public TO weather_reader;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO weather_reader;
@@ -51,6 +51,6 @@ $$ language 'plpgsql';
 -- Log successful initialization
 INSERT INTO app_metadata (key, value) VALUES
     ('last_initialization', CURRENT_TIMESTAMP::text)
-ON CONFLICT (key) DO UPDATE SET 
+ON CONFLICT (key) DO UPDATE SET
     value = CURRENT_TIMESTAMP::text,
-    updated_at = CURRENT_TIMESTAMP; 
+    updated_at = CURRENT_TIMESTAMP;

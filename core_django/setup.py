@@ -6,6 +6,7 @@ allowing the use of Django models without running the full Django web framework.
 """
 
 import os
+
 import django
 from django.conf import settings
 
@@ -13,10 +14,10 @@ from django.conf import settings
 def setup_django() -> None:
     """
     Initialize Django for use with FastAPI.
-    
+
     This function configures Django settings and sets up the ORM
     for use in FastAPI applications.
-    
+
     Call this function before importing Django models in FastAPI code.
     """
     if not settings.configured:
@@ -27,18 +28,19 @@ def setup_django() -> None:
 def ensure_django_setup(func):
     """
     Decorator to ensure Django is set up before calling a function.
-    
+
     This decorator automatically calls setup_django() if Django
     hasn't been configured yet.
-    
+
     Args:
         func: The function to decorate
-        
+
     Returns:
         The decorated function
     """
+
     def wrapper(*args, **kwargs):
         setup_django()
         return func(*args, **kwargs)
-    
-    return wrapper 
+
+    return wrapper

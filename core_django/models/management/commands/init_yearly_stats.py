@@ -215,7 +215,7 @@ class Command(BaseCommand):
         if not daily_records.exists():
             return None
 
-        # Calculate aggregate statistics
+        # Calculate basic aggregate statistics
         aggregates = daily_records.aggregate(
             # Temperature statistics
             avg_max_temp=Avg("max_temp"),
@@ -228,13 +228,16 @@ class Command(BaseCommand):
             max_precipitation=Max("precipitation"),
             # Data quality metrics
             total_records=Count("id"),
-            records_with_temp=Count(
-                "max_temp", filter=models.Q(max_temp__isnull=False)
-            ),
-            records_with_precipitation=Count(
-                "precipitation", filter=models.Q(precipitation__isnull=False)
-            ),
         )
+
+        # Calculate data quality metrics separately to avoid aggregation conflicts
+        records_with_temp = daily_records.filter(max_temp__isnull=False).count()
+        records_with_precipitation = daily_records.filter(
+            precipitation__isnull=False
+        ).count()
+
+        aggregates["records_with_temp"] = records_with_temp
+        aggregates["records_with_precipitation"] = records_with_precipitation
 
         # Create YearlyWeatherStats object
         yearly_stats = YearlyWeatherStats(

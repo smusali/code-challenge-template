@@ -5,6 +5,7 @@ ORM-only configuration for use with FastAPI.
 
 import os
 from pathlib import Path
+
 from django.core.management.utils import get_random_secret_key
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -43,6 +44,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 if DATABASE_URL:
     # Parse DATABASE_URL for production/Docker
     import dj_database_url
+
     DATABASES = {"default": dj_database_url.parse(DATABASE_URL)}
 else:
     # Default development configuration
@@ -157,4 +159,4 @@ if not DEBUG:
 # Django Extensions settings
 if "django_extensions" in INSTALLED_APPS:
     # Additional development tools
-    SHELL_PLUS_PRINT_SQL = DEBUG 
+    SHELL_PLUS_PRINT_SQL = DEBUG

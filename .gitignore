@@ -122,4 +122,3 @@ docker-compose.override.yml
 
 # Keep example environment file
 !.env.example
-

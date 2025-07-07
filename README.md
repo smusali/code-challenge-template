@@ -19,12 +19,14 @@ This project implements a complete data pipeline for weather station data, featu
 ## 🏗️ Architecture
 
 ### Data Models
+
 - `WeatherStation`: Station metadata and geographic information
 - `DailyWeather`: Raw weather observations with temperature and precipitation
 - `YearlyWeatherStats`: Pre-calculated yearly statistics with temperature and precipitation aggregates
 - `CropYield`: Historical crop yield data (1985-2014) for agricultural correlation analysis
 
 ### Technology Stack
+
 - **Database**: PostgreSQL with optimized indexing strategy
 - **API Framework**: FastAPI with automatic OpenAPI documentation
 - **ORM**: Django ORM for robust data modeling
@@ -34,23 +36,26 @@ This project implements a complete data pipeline for weather station data, featu
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - Python 3.11+
 - PostgreSQL 15+ (optional: Docker for full stack)
 
 ### Local Development (Recommended)
 
 1. **Clone and setup**
+
    ```bash
    git clone https://github.com/smusali/code-challenge-template.git
    cd code-challenge-template
    ```
 
 2. **Create virtual environment**
+
    ```bash
    # Using venv
    python3.11 -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
-   
+
    # Or using virtualenv
    pip install virtualenv
    virtualenv venv
@@ -58,17 +63,20 @@ This project implements a complete data pipeline for weather station data, featu
    ```
 
 3. **Install dependencies**
+
    ```bash
    pip install --upgrade pip
    pip install -r requirements.txt
    ```
 
 4. **Test Django setup**
+
    ```bash
    PYTHONPATH=. python core_django/manage.py check
    ```
 
 5. **Setup environment**
+
    ```bash
    cp .env.example .env
    # Edit .env with your database credentials
@@ -115,6 +123,7 @@ PYTHONPATH=. python core_django/manage.py init_weather_data --data-dir=custom_wx
 ```
 
 ### Command Options
+
 - `--clear`: Remove existing data before importing
 - `--batch-size=N`: Process records in batches of N (default: 1000)
 - `--data-dir=PATH`: Specify custom data directory (default: wx_data)
@@ -122,13 +131,16 @@ PYTHONPATH=. python core_django/manage.py init_weather_data --data-dir=custom_wx
 - `--verbosity=2`: Show detailed progress information
 
 ### Expected Results
+
 - **Weather Stations**: 167 stations
 - **Daily Records**: ~1.73 million records
 - **Processing Time**: ~2-5 minutes (depends on hardware)
 - **Data Coverage**: 1985-2014 across multiple US states
 
 ### Data Validation
+
 The command handles:
+
 - Missing values (-9999 → NULL)
 - Date parsing and validation
 - Temperature range validation
@@ -193,13 +205,16 @@ PYTHONPATH=. python core_django/manage.py init_yearly_stats
 ```
 
 ### Yearly Statistics Details
+
 The yearly statistics include:
+
 - **Temperature Metrics**: Average, min, max temperatures
 - **Precipitation Metrics**: Total, average, max precipitation
 - **Data Quality**: Record counts and completeness percentages
 - **Performance**: Pre-calculated for fast API responses
 
 ### Expected Results Summary
+
 - **Weather Stations**: 167 stations
 - **Daily Records**: ~1.73 million records
 - **Yearly Statistics**: ~5,000 station-year combinations (167 stations × ~30 years)
@@ -208,6 +223,7 @@ The yearly statistics include:
 ## 🔧 Development Commands
 
 ### Local Development
+
 ```bash
 # Activate environment
 source venv/bin/activate
@@ -226,6 +242,7 @@ ruff check .
 ```
 
 ### With Poetry
+
 ```bash
 poetry run python core_django/manage.py check
 poetry run pytest
@@ -233,6 +250,7 @@ poetry run black .
 ```
 
 ### With Docker
+
 ```bash
 docker-compose exec web python core_django/manage.py check
 docker-compose run --rm web pytest
@@ -241,6 +259,7 @@ docker-compose run --rm web pytest
 ## 🧪 Testing
 
 ### Run Tests Locally
+
 ```bash
 # With venv
 source venv/bin/activate
@@ -280,6 +299,7 @@ code-challenge-template/
 ## 🔧 Development Tools
 
 ### Code Quality
+
 ```bash
 # Format code
 black .
@@ -297,6 +317,7 @@ pre-commit run --all-files
 ## 🐳 Docker Services
 
 ### Development Stack
+
 ```bash
 # Essential services only
 docker-compose up
@@ -311,6 +332,7 @@ docker-compose --profile monitoring --profile production up
 ## 🔍 Troubleshooting
 
 ### Virtual Environment Issues
+
 ```bash
 # Create fresh environment
 rm -rf venv
@@ -321,6 +343,7 @@ pip install -r requirements.txt
 ```
 
 ### Django Issues
+
 ```bash
 # Check Django setup
 PYTHONPATH=. python core_django/manage.py check
@@ -330,6 +353,7 @@ PYTHONPATH=. python core_django/manage.py shell
 ```
 
 ### Poetry Issues
+
 ```bash
 # Clear cache
 poetry cache clear --all pypi
@@ -339,6 +363,7 @@ poetry install
 ## 🚀 Cloud Deployment
 
 The application is designed for AWS deployment using:
+
 - **AWS Lambda** + API Gateway for serverless API
 - **Amazon Aurora PostgreSQL** for managed database
 - **AWS Batch** for scheduled data ingestion
@@ -356,6 +381,7 @@ See `infrastructure/` directory for Terraform configurations.
 5. Open a Pull Request
 
 ### Code Quality Standards
+
 - Follow PEP 8 style guidelines
 - Add type hints to all functions
 - Include docstrings for public APIs

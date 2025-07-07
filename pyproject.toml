@@ -52,6 +52,10 @@ line-length = 88
 select = ["E", "W", "F", "I", "C", "B", "UP"]
 ignore = ["E501", "B008", "C901", "B904"]
 
+[tool.bandit]
+exclude_dirs = ["tests", "venv", ".venv", ".git"]
+skips = ["B101", "B601"]
+
 [tool.mypy]
 python_version = "3.11"
 check_untyped_defs = true
@@ -65,6 +69,6 @@ addopts = ["--strict-markers", "--strict-config"]
 testpaths = ["tests"]
 markers = [
     "unit: unit tests",
-    "integration: integration tests", 
+    "integration: integration tests",
     "db: tests requiring database",
-] 
+]

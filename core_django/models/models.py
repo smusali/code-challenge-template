@@ -59,7 +59,7 @@ class WeatherStation(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        app_label = "core_django.models"
+        app_label = "models"
         db_table = "weather_stations"
         verbose_name = "Weather Station"
         verbose_name_plural = "Weather Stations"
@@ -108,7 +108,7 @@ class DailyWeather(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        app_label = "core_django.models"
+        app_label = "models"
         db_table = "daily_weather"
         verbose_name = "Daily Weather Record"
         verbose_name_plural = "Daily Weather Records"
@@ -248,7 +248,7 @@ class YearlyWeatherStats(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        app_label = "core_django.models"
+        app_label = "models"
         db_table = "yearly_weather_stats"
         verbose_name = "Yearly Weather Statistics"
         verbose_name_plural = "Yearly Weather Statistics"
@@ -374,7 +374,7 @@ class CropYield(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        app_label = "core_django.models"
+        app_label = "models"
         db_table = "crop_yields"
         verbose_name = "Crop Yield"
         verbose_name_plural = "Crop Yields"
