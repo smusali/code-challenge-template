@@ -205,3 +205,4 @@ logs/
 
 # Keep example environment file
 !.env.example
+

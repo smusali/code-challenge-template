@@ -52,8 +52,6 @@ structlog = "^23.2.0"
 python-dateutil = "^2.8.2"
 # Environment Management
 python-dotenv = "^1.0.0"
-# File Hashing
-hashlib-compat = "^1.0.1"
 # Progress Bars
 tqdm = "^4.66.1"
 # JSON Schema

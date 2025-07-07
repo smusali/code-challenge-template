@@ -1,0 +1,128 @@
+# Multi-stage Dockerfile for Weather Data Engineering API
+# Stage 1: Base image with Python and system dependencies
+FROM python:3.11-slim as base
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONHASHSEED=random \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    POETRY_VERSION=1.7.1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    libpq-dev \
+    gcc \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Poetry
+RUN pip install poetry==$POETRY_VERSION
+
+# Configure Poetry for container environment
+ENV POETRY_NO_INTERACTION=1 \
+    POETRY_VENV_IN_PROJECT=1 \
+    POETRY_CACHE_DIR=/tmp/poetry_cache \
+    POETRY_INSTALLER_MAX_WORKERS=10
+
+# Set work directory
+WORKDIR /app
+
+# Copy Poetry files (poetry.lock is optional)
+COPY pyproject.toml ./
+COPY poetry.loc[k] ./
+
+# Stage 2: Development dependencies
+FROM base as development
+
+# Install all dependencies including dev dependencies
+# Use --no-root to avoid installing the project itself initially
+RUN poetry install --with dev,lint --no-root && rm -rf $POETRY_CACHE_DIR
+
+# Copy application code
+COPY . .
+
+# Install the project in editable mode
+RUN poetry install --only-root
+
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+RUN chown -R appuser:appuser /app
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Development command with hot reloading
+CMD ["poetry", "run", "uvicorn", "weather_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# Stage 3: Production dependencies only
+FROM base as production-deps
+
+# Install only production dependencies
+RUN poetry install --only=main --no-root && rm -rf $POETRY_CACHE_DIR
+
+# Stage 4: Production image
+FROM python:3.11-slim as production
+
+# Set environment variables for production
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app"
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Set work directory
+WORKDIR /app
+
+# Copy virtual environment from production-deps stage
+COPY --from=production-deps --chown=appuser:appuser /app/.venv /app/.venv
+
+# Copy application code
+COPY --chown=appuser:appuser . .
+
+# Create required directories
+RUN mkdir -p /app/logs && chown -R appuser:appuser /app/logs
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Production command with multiple workers
+CMD ["uvicorn", "weather_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+
+# Stage 5: Data ingestion worker
+FROM production as ingestion
+
+# Switch back to root to install additional tools for data processing
+USER root
+
+# Install additional dependencies for data processing
+RUN apt-get update && apt-get install -y \
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Switch back to appuser
+USER appuser
+
+# Override entrypoint for data processing tasks
+ENTRYPOINT ["python", "-m"]
+CMD ["scripts.ingest_wx", "--help"]

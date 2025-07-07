@@ -38,7 +38,11 @@ This project implements a complete data pipeline for weather station data, featu
 - PostgreSQL 15+
 - Docker & Docker Compose (optional)
 
-### Local Development
+### Setup Options
+
+Choose one of the following setup methods:
+
+#### Option 1: Poetry (Recommended)
 
 1. **Clone the repository**
    ```bash
@@ -46,27 +50,139 @@ This project implements a complete data pipeline for weather station data, featu
    cd code-challenge-template
    ```
 
-2. **Install dependencies**
+2. **Install Poetry** (if not already installed)
    ```bash
+   curl -sSL https://install.python-poetry.org | python3 -
+   # Or using pip
    pip install poetry
-   poetry install
    ```
 
-3. **Set up environment**
+3. **Install dependencies**
+   ```bash
+   poetry install --with dev,lint
+   ```
+
+4. **Activate Poetry shell**
+   ```bash
+   poetry shell
+   ```
+
+5. **Set up environment**
    ```bash
    cp .env.example .env
    # Edit .env with your database credentials
    ```
 
-4. **Run with Docker Compose**
+#### Option 2: Virtual Environment (venv)
+
+1. **Clone the repository**
    ```bash
+   git clone https://github.com/smusali/code-challenge-template.git
+   cd code-challenge-template
+   ```
+
+2. **Create and activate virtual environment**
+   ```bash
+   python3.11 -m venv venv
+   
+   # On macOS/Linux
+   source venv/bin/activate
+   
+   # On Windows
+   venv\Scripts\activate
+   ```
+
+3. **Upgrade pip and install dependencies**
+   ```bash
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+
+4. **Generate requirements.txt from Poetry** (if needed)
+   ```bash
+   # If requirements.txt doesn't exist, generate it:
+   poetry export -f requirements.txt --output requirements.txt --with dev,lint
+   ```
+
+5. **Set up environment**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your database credentials
+   ```
+
+#### Option 3: Docker (Easiest)
+
+1. **Clone and run with Docker Compose**
+   ```bash
+   git clone https://github.com/smusali/code-challenge-template.git
+   cd code-challenge-template
    docker-compose up --build
    ```
 
-5. **Access the API**
-   - API Endpoints: http://localhost:8000/api/
-   - Interactive Docs: http://localhost:8000/docs
-   - OpenAPI Spec: http://localhost:8000/openapi.json
+### Development Commands
+
+#### With Poetry
+```bash
+# Run API server
+poetry run uvicorn weather_api.main:app --reload
+
+# Run tests
+poetry run pytest
+
+# Run pre-commit hooks
+poetry run pre-commit run --all-files
+
+# Data ingestion
+poetry run python -m scripts.ingest_wx --src ./wx_data
+
+# Django management
+poetry run python core_django/manage.py migrate
+```
+
+#### With venv
+```bash
+# Activate environment first
+source venv/bin/activate  # or venv\Scripts\activate on Windows
+
+# Run API server
+uvicorn weather_api.main:app --reload
+
+# Run tests
+pytest
+
+# Run pre-commit hooks
+pre-commit run --all-files
+
+# Data ingestion
+python -m scripts.ingest_wx --src ./wx_data
+
+# Django management
+python core_django/manage.py migrate
+```
+
+#### With Docker
+```bash
+# Run with essential services only (development)
+docker-compose up
+
+# Run with all services including monitoring
+docker-compose --profile monitoring up
+
+# Run tests in container
+docker-compose exec web poetry run pytest
+
+# Data ingestion
+docker-compose run --rm ingestion python -m scripts.ingest_wx --src /app/wx_data
+```
+
+### Access Points
+
+Once running, access these endpoints:
+- **API Endpoints**: http://localhost:8000/api/
+- **Interactive Docs**: http://localhost:8000/docs
+- **OpenAPI Spec**: http://localhost:8000/openapi.json
+- **Database Admin**: http://localhost:5050 (pgAdmin)
+- **Monitoring**: http://localhost:3000 (Grafana)
 
 ## 📡 API Endpoints
 
@@ -93,11 +209,23 @@ curl "http://localhost:8000/api/weather/stats?start_date=2010-01-01&end_date=201
 
 ### Ingestion Process
 ```bash
-# Ingest weather data
-poetry run ingest-wx --src ./wx_data --db-url $DATABASE_URL
+# Poetry
+poetry run python -m scripts.ingest_wx --src ./wx_data --db-url $DATABASE_URL
 
-# Calculate yearly statistics
-poetry run compute-yearly-stats --db-url $DATABASE_URL
+# venv
+python -m scripts.ingest_wx --src ./wx_data --db-url $DATABASE_URL
+
+# Docker
+docker-compose run --rm ingestion python -m scripts.ingest_wx --src /app/wx_data
+```
+
+### Calculate Statistics
+```bash
+# Poetry
+poetry run python -m scripts.compute_yearly_stats --db-url $DATABASE_URL
+
+# venv
+python -m scripts.compute_yearly_stats --db-url $DATABASE_URL
 ```
 
 ### Features
@@ -108,6 +236,7 @@ poetry run compute-yearly-stats --db-url $DATABASE_URL
 
 ## 🧪 Testing
 
+### Poetry
 ```bash
 # Run all tests
 poetry run pytest
@@ -119,6 +248,29 @@ poetry run pytest --cov=weather_api --cov-report=html
 poetry run pytest tests/unit/
 poetry run pytest tests/integration/
 poetry run pytest tests/e2e/
+```
+
+### venv
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=weather_api --cov-report=html
+
+# Run specific test categories
+pytest tests/unit/
+pytest tests/integration/
+pytest tests/e2e/
+```
+
+### Docker
+```bash
+# Run tests in container
+docker-compose exec web poetry run pytest
+
+# Run tests with fresh container
+docker-compose run --rm web poetry run pytest
 ```
 
 ## 📈 Performance Characteristics
@@ -142,6 +294,55 @@ code-challenge-template/
 └── yld_data/             # Crop yield data
 ```
 
+## 🔧 Development Tools
+
+### Code Quality
+```bash
+# Poetry
+poetry run black .
+poetry run isort .
+poetry run ruff check .
+poetry run mypy .
+
+# venv
+black .
+isort .
+ruff check .
+mypy .
+```
+
+### Pre-commit Hooks
+```bash
+# Install hooks
+pre-commit install
+
+# Run on all files
+pre-commit run --all-files
+```
+
+## 🐳 Docker Services
+
+### Development (Default)
+- `web`: FastAPI application with hot reloading
+- `db`: PostgreSQL database
+- `redis`: Cache layer
+- `pgadmin`: Database administration
+
+### With Profiles
+```bash
+# Include monitoring
+docker-compose --profile monitoring up
+
+# Include production services
+docker-compose --profile production up
+
+# Include data processing
+docker-compose --profile data-processing up
+
+# All services
+docker-compose --profile monitoring --profile production --profile data-processing up
+```
+
 ## 🚀 Cloud Deployment
 
 The application is designed for AWS deployment using:
@@ -161,11 +362,50 @@ See `infrastructure/` directory for Terraform configurations.
 4. Push to branch: `git push origin feature/amazing-feature`
 5. Open a Pull Request
 
-### Code Quality
+### Code Quality Standards
 - Follow PEP 8 style guidelines
 - Add type hints to all functions
 - Include docstrings for public APIs
 - Maintain test coverage >90%
+- Use conventional commit messages
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+#### Poetry Issues
+```bash
+# Clear cache and reinstall
+poetry cache clear --all pypi
+poetry install --with dev,lint
+```
+
+#### Docker Issues
+```bash
+# Rebuild containers
+docker-compose down
+docker-compose build --no-cache
+docker-compose up
+```
+
+#### Database Connection
+```bash
+# Check if PostgreSQL is running
+docker-compose ps db
+
+# Reset database
+docker-compose down -v
+docker-compose up db
+```
+
+#### Dependencies
+```bash
+# Update all dependencies
+poetry update
+
+# Or with venv
+pip install --upgrade -r requirements.txt
+```
 
 ## 📄 License
 
