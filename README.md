@@ -35,242 +35,105 @@ This project implements a complete data pipeline for weather station data, featu
 
 ### Prerequisites
 - Python 3.11+
-- PostgreSQL 15+
-- Docker & Docker Compose (optional)
+- PostgreSQL 15+ (optional: Docker for full stack)
 
-### Setup Options
+### Local Development (Recommended)
 
-Choose one of the following setup methods:
-
-#### Option 1: Poetry (Recommended)
-
-1. **Clone the repository**
+1. **Clone and setup**
    ```bash
    git clone https://github.com/smusali/code-challenge-template.git
    cd code-challenge-template
    ```
 
-2. **Install Poetry** (if not already installed)
+2. **Create virtual environment**
    ```bash
-   curl -sSL https://install.python-poetry.org | python3 -
-   # Or using pip
-   pip install poetry
+   # Using venv
+   python3.11 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   
+   # Or using virtualenv
+   pip install virtualenv
+   virtualenv venv
+   source venv/bin/activate
    ```
 
 3. **Install dependencies**
-   ```bash
-   poetry install --with dev,lint
-   ```
-
-4. **Activate Poetry shell**
-   ```bash
-   poetry shell
-   ```
-
-5. **Set up environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your database credentials
-   ```
-
-#### Option 2: Virtual Environment (venv)
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/smusali/code-challenge-template.git
-   cd code-challenge-template
-   ```
-
-2. **Create and activate virtual environment**
-   ```bash
-   python3.11 -m venv venv
-   
-   # On macOS/Linux
-   source venv/bin/activate
-   
-   # On Windows
-   venv\Scripts\activate
-   ```
-
-3. **Upgrade pip and install dependencies**
    ```bash
    pip install --upgrade pip
    pip install -r requirements.txt
    ```
 
-4. **Generate requirements.txt from Poetry** (if needed)
+4. **Test Django setup**
    ```bash
-   # If requirements.txt doesn't exist, generate it:
-   poetry export -f requirements.txt --output requirements.txt --with dev,lint
+   PYTHONPATH=. python core_django/manage.py check
    ```
 
-5. **Set up environment**
+5. **Setup environment**
    ```bash
    cp .env.example .env
    # Edit .env with your database credentials
    ```
 
-#### Option 3: Docker (Easiest)
+### Using Poetry (Alternative)
 
-1. **Clone and run with Docker Compose**
-   ```bash
-   git clone https://github.com/smusali/code-challenge-template.git
-   cd code-challenge-template
-   docker-compose up --build
-   ```
-
-### Development Commands
-
-#### With Poetry
 ```bash
-# Run API server
-poetry run uvicorn weather_api.main:app --reload
-
-# Run tests
-poetry run pytest
-
-# Run pre-commit hooks
-poetry run pre-commit run --all-files
-
-# Data ingestion
-poetry run python -m scripts.ingest_wx --src ./wx_data
-
-# Django management
-poetry run python core_django/manage.py migrate
+pip install poetry
+poetry install
+poetry shell
 ```
 
-#### With venv
-```bash
-# Activate environment first
-source venv/bin/activate  # or venv\Scripts\activate on Windows
+### Using Docker (For full stack)
 
-# Run API server
-uvicorn weather_api.main:app --reload
+```bash
+docker-compose up --build
+```
+
+## 🔧 Development Commands
+
+### Local Development
+```bash
+# Activate environment
+source venv/bin/activate
+
+# Run Django commands
+PYTHONPATH=. python core_django/manage.py check
+PYTHONPATH=. python core_django/manage.py shell
 
 # Run tests
 pytest
 
-# Run pre-commit hooks
-pre-commit run --all-files
-
-# Data ingestion
-python -m scripts.ingest_wx --src ./wx_data
-
-# Django management
-python core_django/manage.py migrate
+# Code formatting
+black .
+isort .
+ruff check .
 ```
 
-#### With Docker
+### With Poetry
 ```bash
-# Run with essential services only (development)
-docker-compose up
-
-# Run with all services including monitoring
-docker-compose --profile monitoring up
-
-# Run tests in container
-docker-compose exec web poetry run pytest
-
-# Data ingestion
-docker-compose run --rm ingestion python -m scripts.ingest_wx --src /app/wx_data
+poetry run python core_django/manage.py check
+poetry run pytest
+poetry run black .
 ```
 
-### Access Points
-
-Once running, access these endpoints:
-- **API Endpoints**: http://localhost:8000/api/
-- **Interactive Docs**: http://localhost:8000/docs
-- **OpenAPI Spec**: http://localhost:8000/openapi.json
-- **Database Admin**: http://localhost:5050 (pgAdmin)
-- **Monitoring**: http://localhost:3000 (Grafana)
-
-## 📡 API Endpoints
-
-### Weather Data
-- `GET /api/weather` - Raw weather observations
-- `GET /api/weather/stats` - Aggregated yearly statistics
-
-### Query Parameters
-- `station_id`: Filter by weather station
-- `date`: Specific date (YYYY-MM-DD)
-- `start_date` / `end_date`: Date range filtering
-- `page` / `page_size`: Pagination controls
-
-### Example Usage
+### With Docker
 ```bash
-# Get all weather data for station USC00110072
-curl "http://localhost:8000/api/weather?station_id=USC00110072"
-
-# Get yearly stats for 2010-2014
-curl "http://localhost:8000/api/weather/stats?start_date=2010-01-01&end_date=2014-12-31"
+docker-compose exec web python core_django/manage.py check
+docker-compose run --rm web pytest
 ```
-
-## 🔧 Data Pipeline
-
-### Ingestion Process
-```bash
-# Poetry
-poetry run python -m scripts.ingest_wx --src ./wx_data --db-url $DATABASE_URL
-
-# venv
-python -m scripts.ingest_wx --src ./wx_data --db-url $DATABASE_URL
-
-# Docker
-docker-compose run --rm ingestion python -m scripts.ingest_wx --src /app/wx_data
-```
-
-### Calculate Statistics
-```bash
-# Poetry
-poetry run python -m scripts.compute_yearly_stats --db-url $DATABASE_URL
-
-# venv
-python -m scripts.compute_yearly_stats --db-url $DATABASE_URL
-```
-
-### Features
-- **Idempotent**: Safe to run multiple times without duplicates
-- **Efficient**: Streaming parser with minimal memory footprint
-- **Observable**: Comprehensive logging and metrics
-- **Resumable**: Skip unchanged files using checksums
 
 ## 🧪 Testing
 
-### Poetry
+### Run Tests Locally
 ```bash
-# Run all tests
+# With venv
+source venv/bin/activate
+pytest tests/
+
+# With Poetry
 poetry run pytest
 
-# Run with coverage
-poetry run pytest --cov=weather_api --cov-report=html
-
-# Run specific test categories
-poetry run pytest tests/unit/
-poetry run pytest tests/integration/
-poetry run pytest tests/e2e/
-```
-
-### venv
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=weather_api --cov-report=html
-
-# Run specific test categories
-pytest tests/unit/
-pytest tests/integration/
-pytest tests/e2e/
-```
-
-### Docker
-```bash
-# Run tests in container
-docker-compose exec web poetry run pytest
-
-# Run tests with fresh container
-docker-compose run --rm web poetry run pytest
+# With Docker
+docker-compose run --rm web pytest
 ```
 
 ## 📈 Performance Characteristics
@@ -284,12 +147,15 @@ docker-compose run --rm web poetry run pytest
 
 ```
 code-challenge-template/
-├── weather_api/          # FastAPI application
 ├── core_django/          # Django ORM models
-├── scripts/              # Data processing scripts
+│   ├── core/             # Django settings and config
+│   ├── models/           # Data models
+│   ├── manage.py         # Django management
+│   └── setup.py          # FastAPI integration
+├── weather_api/          # FastAPI application (future)
+├── scripts/              # Data processing scripts (future)
 ├── tests/                # Test suites
 ├── docker/               # Container definitions
-├── infrastructure/       # Terraform modules
 ├── wx_data/              # Weather station files
 └── yld_data/             # Crop yield data
 ```
@@ -298,49 +164,59 @@ code-challenge-template/
 
 ### Code Quality
 ```bash
-# Poetry
-poetry run black .
-poetry run isort .
-poetry run ruff check .
-poetry run mypy .
-
-# venv
+# Format code
 black .
 isort .
+
+# Lint code
 ruff check .
 mypy .
-```
 
-### Pre-commit Hooks
-```bash
-# Install hooks
+# Pre-commit hooks
 pre-commit install
-
-# Run on all files
 pre-commit run --all-files
 ```
 
 ## 🐳 Docker Services
 
-### Development (Default)
-- `web`: FastAPI application with hot reloading
-- `db`: PostgreSQL database
-- `redis`: Cache layer
-- `pgadmin`: Database administration
-
-### With Profiles
+### Development Stack
 ```bash
-# Include monitoring
+# Essential services only
+docker-compose up
+
+# With monitoring
 docker-compose --profile monitoring up
 
-# Include production services
-docker-compose --profile production up
+# Full stack
+docker-compose --profile monitoring --profile production up
+```
 
-# Include data processing
-docker-compose --profile data-processing up
+## 🔍 Troubleshooting
 
-# All services
-docker-compose --profile monitoring --profile production --profile data-processing up
+### Virtual Environment Issues
+```bash
+# Create fresh environment
+rm -rf venv
+python3.11 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### Django Issues
+```bash
+# Check Django setup
+PYTHONPATH=. python core_django/manage.py check
+
+# Django shell
+PYTHONPATH=. python core_django/manage.py shell
+```
+
+### Poetry Issues
+```bash
+# Clear cache
+poetry cache clear --all pypi
+poetry install
 ```
 
 ## 🚀 Cloud Deployment
@@ -368,44 +244,6 @@ See `infrastructure/` directory for Terraform configurations.
 - Include docstrings for public APIs
 - Maintain test coverage >90%
 - Use conventional commit messages
-
-## 🔍 Troubleshooting
-
-### Common Issues
-
-#### Poetry Issues
-```bash
-# Clear cache and reinstall
-poetry cache clear --all pypi
-poetry install --with dev,lint
-```
-
-#### Docker Issues
-```bash
-# Rebuild containers
-docker-compose down
-docker-compose build --no-cache
-docker-compose up
-```
-
-#### Database Connection
-```bash
-# Check if PostgreSQL is running
-docker-compose ps db
-
-# Reset database
-docker-compose down -v
-docker-compose up db
-```
-
-#### Dependencies
-```bash
-# Update all dependencies
-poetry update
-
-# Or with venv
-pip install --upgrade -r requirements.txt
-```
 
 ## 📄 License
 
