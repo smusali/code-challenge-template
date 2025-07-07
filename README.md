@@ -88,6 +88,53 @@ poetry shell
 docker-compose up --build
 ```
 
+## 📊 Database Initialization
+
+### Initialize Weather Data
+
+The project includes a comprehensive Django management command to populate the database with the existing weather data files.
+
+```bash
+# Activate virtual environment first
+source venv/bin/activate
+
+# Test data parsing (dry run - no database changes)
+PYTHONPATH=. python core_django/manage.py init_weather_data --dry-run --verbosity=2
+
+# Initialize database with weather data
+PYTHONPATH=. python core_django/manage.py init_weather_data
+
+# Clear existing data and re-initialize
+PYTHONPATH=. python core_django/manage.py init_weather_data --clear
+
+# Custom batch size for performance tuning
+PYTHONPATH=. python core_django/manage.py init_weather_data --batch-size=2000
+
+# Use different data directory
+PYTHONPATH=. python core_django/manage.py init_weather_data --data-dir=custom_wx_data
+```
+
+### Command Options
+- `--clear`: Remove existing data before importing
+- `--batch-size=N`: Process records in batches of N (default: 1000)
+- `--data-dir=PATH`: Specify custom data directory (default: wx_data)
+- `--dry-run`: Parse files without saving to database
+- `--verbosity=2`: Show detailed progress information
+
+### Expected Results
+- **Weather Stations**: 167 stations
+- **Daily Records**: ~1.73 million records
+- **Processing Time**: ~2-5 minutes (depends on hardware)
+- **Data Coverage**: 1985-2014 across multiple US states
+
+### Data Validation
+The command handles:
+- Missing values (-9999 → NULL)
+- Date parsing and validation
+- Temperature range validation
+- Duplicate record prevention
+- Batch processing for memory efficiency
+
 ## 🔧 Development Commands
 
 ### Local Development
