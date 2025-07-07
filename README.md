@@ -21,8 +21,8 @@ This project implements a complete data pipeline for weather station data, featu
 ### Data Models
 - `WeatherStation`: Station metadata and geographic information
 - `DailyWeather`: Raw weather observations with temperature and precipitation
-- `YearlyWeatherStats`: Aggregated statistics for efficient querying
-- `CropYield`: Agricultural yield data for correlation analysis
+- `YearlyWeatherStats`: Pre-calculated yearly statistics with temperature and precipitation aggregates
+- `CropYield`: Historical crop yield data (1985-2014) for agricultural correlation analysis
 
 ### Technology Stack
 - **Database**: PostgreSQL with optimized indexing strategy
@@ -134,6 +134,76 @@ The command handles:
 - Temperature range validation
 - Duplicate record prevention
 - Batch processing for memory efficiency
+
+### Initialize Crop Yield Data
+
+Initialize the database with historical crop yield data for correlation analysis:
+
+```bash
+# Test crop yield data parsing (dry run)
+PYTHONPATH=. python core_django/manage.py init_crop_yield --dry-run --verbosity=2
+
+# Initialize crop yield data
+PYTHONPATH=. python core_django/manage.py init_crop_yield
+
+# Clear existing data and re-initialize
+PYTHONPATH=. python core_django/manage.py init_crop_yield --clear
+
+# Use custom data file
+PYTHONPATH=. python core_django/manage.py init_crop_yield --data-file=custom_yield_data.txt
+```
+
+### Calculate Yearly Weather Statistics
+
+Generate aggregated yearly statistics from daily weather data for efficient API queries:
+
+```bash
+# Test yearly statistics calculation (dry run)
+PYTHONPATH=. python core_django/manage.py init_yearly_stats --dry-run --verbosity=2
+
+# Calculate yearly statistics for all stations and years
+PYTHONPATH=. python core_django/manage.py init_yearly_stats
+
+# Calculate for specific year only
+PYTHONPATH=. python core_django/manage.py init_yearly_stats --year=2010
+
+# Calculate for specific station only
+PYTHONPATH=. python core_django/manage.py init_yearly_stats --station=USC00110072
+
+# Clear and recalculate all statistics
+PYTHONPATH=. python core_django/manage.py init_yearly_stats --clear
+
+# Custom batch size for performance tuning
+PYTHONPATH=. python core_django/manage.py init_yearly_stats --batch-size=200
+```
+
+### Complete Database Initialization
+
+To fully initialize the database with all data:
+
+```bash
+# 1. Initialize weather stations and daily data
+PYTHONPATH=. python core_django/manage.py init_weather_data
+
+# 2. Initialize crop yield data
+PYTHONPATH=. python core_django/manage.py init_crop_yield
+
+# 3. Calculate yearly statistics (requires daily data)
+PYTHONPATH=. python core_django/manage.py init_yearly_stats
+```
+
+### Yearly Statistics Details
+The yearly statistics include:
+- **Temperature Metrics**: Average, min, max temperatures
+- **Precipitation Metrics**: Total, average, max precipitation
+- **Data Quality**: Record counts and completeness percentages
+- **Performance**: Pre-calculated for fast API responses
+
+### Expected Results Summary
+- **Weather Stations**: 167 stations
+- **Daily Records**: ~1.73 million records
+- **Yearly Statistics**: ~5,000 station-year combinations (167 stations × ~30 years)
+- **Crop Yield Records**: 30 records (1985-2014)
 
 ## 🔧 Development Commands
 
