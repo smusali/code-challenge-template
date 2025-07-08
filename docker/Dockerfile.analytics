@@ -1,0 +1,70 @@
+# Analytics & Scheduling Service Dockerfile
+# Runs cron jobs for data analytics and maintenance tasks
+FROM python:3.11-slim-bullseye
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    cron \
+    curl \
+    postgresql-client \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user
+RUN useradd --create-home --shell /bin/bash app
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . /app/
+
+# Copy cron configuration
+COPY docker/analytics-cron /etc/cron.d/analytics-cron
+# Copy analytics scripts individually to avoid .dockerignore issues
+RUN mkdir -p /app/analytics-scripts
+COPY docker/analytics-scripts/compute-yearly-stats.sh /app/analytics-scripts/
+COPY docker/analytics-scripts/health-check.sh /app/analytics-scripts/
+COPY docker/analytics-scripts/data-maintenance.sh /app/analytics-scripts/
+COPY docker/analytics-scripts/full-stats-recompute.sh /app/analytics-scripts/
+COPY docker/analytics-scripts/rotate-logs.sh /app/analytics-scripts/
+COPY docker/analytics-scripts/update-db-stats.sh /app/analytics-scripts/
+COPY docker/analytics-scripts/export-metrics.sh /app/analytics-scripts/
+COPY docker/analytics-scripts/compute-previous-year-stats.sh /app/analytics-scripts/
+
+# Set proper permissions
+RUN chmod 0644 /etc/cron.d/analytics-cron \
+    && chmod +x /app/docker/analytics-scripts/*.sh \
+    && chown -R app:app /app \
+    && mkdir -p /var/log/analytics \
+    && chown app:app /var/log/analytics
+
+# Create log files
+RUN touch /var/log/analytics/yearly-stats.log \
+    && touch /var/log/analytics/data-maintenance.log \
+    && touch /var/log/analytics/cron.log \
+    && chown app:app /var/log/analytics/*.log
+
+# Apply cron job
+RUN crontab -u app /etc/cron.d/analytics-cron
+
+# Create PID directory for cron and set permissions
+RUN mkdir -p /var/run \
+    && chmod 755 /var/run
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD pgrep cron > /dev/null || exit 1
+
+# Default command - run cron as root and tail logs as app user
+CMD ["sh", "-c", "cron && su app -c 'tail -f /var/log/analytics/cron.log'"]

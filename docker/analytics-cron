@@ -1,0 +1,35 @@
+# Analytics Cron Jobs Configuration
+# Format: minute hour day month weekday user command
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+PYTHONPATH=/app
+
+# Yearly Statistics Computation
+# Run daily at 2:00 AM to compute any missing yearly statistics
+0 2 * * * app /app/docker/analytics-scripts/compute-yearly-stats.sh >> /var/log/analytics/yearly-stats.log 2>&1
+
+# Weekly Data Maintenance
+# Run every Sunday at 3:00 AM for data cleanup and optimization
+0 3 * * 0 app /app/docker/analytics-scripts/data-maintenance.sh >> /var/log/analytics/data-maintenance.log 2>&1
+
+# Monthly Full Statistics Recomputation
+# Run on the 1st of each month at 4:00 AM to ensure data consistency
+0 4 1 * * app /app/docker/analytics-scripts/full-stats-recompute.sh >> /var/log/analytics/yearly-stats.log 2>&1
+
+# Health Check and Monitoring
+# Run every 15 minutes to check system health and log status
+*/15 * * * * app /app/docker/analytics-scripts/health-check.sh >> /var/log/analytics/cron.log 2>&1
+
+# Log Rotation (daily at 1:00 AM)
+0 1 * * * app /app/docker/analytics-scripts/rotate-logs.sh >> /var/log/analytics/cron.log 2>&1
+
+# Database Statistics Update
+# Run every 6 hours to update database statistics for query optimization
+0 */6 * * * app /app/docker/analytics-scripts/update-db-stats.sh >> /var/log/analytics/data-maintenance.log 2>&1
+
+# Export Analytics Metrics
+# Run every hour to export key metrics for monitoring
+0 * * * * app /app/docker/analytics-scripts/export-metrics.sh >> /var/log/analytics/cron.log 2>&1
+
+# Force yearly stats computation for previous year (run once in January)
+0 5 1 1 * app /app/docker/analytics-scripts/compute-previous-year-stats.sh >> /var/log/analytics/yearly-stats.log 2>&1

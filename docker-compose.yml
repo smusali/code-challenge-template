@@ -1,5 +1,6 @@
 # Docker Compose for Weather Data Engineering API
 # Development and local testing environment
+name: weather-data-engineering-api
 version: "3.8"
 
 services:
@@ -115,6 +116,38 @@ services:
     networks:
       - weather-network
 
+  # Analytics & Scheduling Service
+  analytics:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.analytics
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-weather_user}:${POSTGRES_PASSWORD:-weather_pass}@db:5432/${POSTGRES_DB:-weather_db}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-dev-secret-key-change-in-production}
+      - DJANGO_DEBUG=${DJANGO_DEBUG:-False}
+      - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,0.0.0.0}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PYTHONPATH=/app
+      - TZ=${TZ:-UTC}
+      - ANALYTICS_ENABLED=${ANALYTICS_ENABLED:-true}
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+      - analytics_logs:/var/log/analytics
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        ["CMD", "sh", "-c", "pgrep cron > /dev/null && echo 'Cron is running'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - weather-network
+
   # Database Admin Interface (pgAdmin)
   pgadmin:
     image: dpage/pgadmin4:latest
@@ -194,6 +227,8 @@ volumes:
   prometheus_data:
     driver: local
   grafana_data:
+    driver: local
+  analytics_logs:
     driver: local
 
 # Custom network for service communication
