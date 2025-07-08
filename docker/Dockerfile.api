@@ -1,128 +1,140 @@
 # Multi-stage Dockerfile for Weather Data Engineering API
-# Stage 1: Base image with Python and system dependencies
+# Optimized for production with proper security and performance
+
+# Base stage with Python and system dependencies
 FROM python:3.11-slim as base
 
 # Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONHASHSEED=random \
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    POETRY_VERSION=1.7.1
+    DEBIAN_FRONTEND=noninteractive
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
-    curl \
     libpq-dev \
     gcc \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Poetry
-RUN pip install poetry==$POETRY_VERSION
-
-# Configure Poetry for container environment
-ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VENV_IN_PROJECT=1 \
-    POETRY_CACHE_DIR=/tmp/poetry_cache \
-    POETRY_INSTALLER_MAX_WORKERS=10
-
-# Set work directory
-WORKDIR /app
-
-# Copy Poetry files (poetry.lock is optional)
-COPY pyproject.toml ./
-COPY poetry.loc[k] ./
-
-# Stage 2: Development dependencies
-FROM base as development
-
-# Install all dependencies including dev dependencies
-# Use --no-root to avoid installing the project itself initially
-RUN poetry install --with dev,lint --no-root && rm -rf $POETRY_CACHE_DIR
-
-# Copy application code
-COPY . .
-
-# Install the project in editable mode
-RUN poetry install --only-root
-
-# Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-RUN chown -R appuser:appuser /app
-USER appuser
-
-# Expose port
-EXPOSE 8000
-
-# Development command with hot reloading
-CMD ["poetry", "run", "uvicorn", "weather_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
-
-# Stage 3: Production dependencies only
-FROM base as production-deps
-
-# Install only production dependencies
-RUN poetry install --only=main --no-root && rm -rf $POETRY_CACHE_DIR
-
-# Stage 4: Production image
-FROM python:3.11-slim as production
-
-# Set environment variables for production
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH="/app"
-
-# Install runtime dependencies only
-RUN apt-get update && apt-get install -y \
-    libpq5 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
+# Create app user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 # Set work directory
 WORKDIR /app
 
-# Copy virtual environment from production-deps stage
-COPY --from=production-deps --chown=appuser:appuser /app/.venv /app/.venv
+# Copy requirements first to leverage Docker layer caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Development stage
+FROM base as development
+
+# Install development dependencies
+RUN pip install --no-cache-dir \
+    pytest \
+    pytest-asyncio \
+    pytest-cov \
+    black \
+    isort \
+    mypy \
+    flake8
+
+# Copy source code
+COPY . .
+
+# Change ownership to app user
+RUN chown -R appuser:appuser /app
+
+# Switch to app user
+USER appuser
+
+# Expose development port
+EXPOSE 8000
+
+# Development command with hot reload
+CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# Production stage
+FROM base as production
+
+# Install only production dependencies
+RUN pip install --no-cache-dir \
+    gunicorn \
+    uvicorn[standard]
 
 # Copy application code
 COPY --chown=appuser:appuser . .
 
-# Create required directories
-RUN mkdir -p /app/logs && chown -R appuser:appuser /app/logs
+# Create directories for logs and static files
+RUN mkdir -p /app/logs /app/static && \
+    chown -R appuser:appuser /app/logs /app/static
 
-# Switch to non-root user
+# Switch to app user
 USER appuser
 
-# Expose port
+# Expose production port
 EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Production command with multiple workers
-CMD ["uvicorn", "weather_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Production command with gunicorn
+CMD ["gunicorn", "src.main:app", \
+     "--worker-class", "uvicorn.workers.UvicornWorker", \
+     "--workers", "4", \
+     "--bind", "0.0.0.0:8000", \
+     "--timeout", "30", \
+     "--keep-alive", "5", \
+     "--max-requests", "1000", \
+     "--max-requests-jitter", "100", \
+     "--preload", \
+     "--log-level", "info", \
+     "--access-logfile", "/app/logs/access.log", \
+     "--error-logfile", "/app/logs/error.log"]
 
-# Stage 5: Data ingestion worker
-FROM production as ingestion
-
-# Switch back to root to install additional tools for data processing
-USER root
+# Ingestion stage (for data ingestion tasks)
+FROM base as ingestion
 
 # Install additional dependencies for data processing
-RUN apt-get update && apt-get install -y \
-    wget \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir \
+    pandas \
+    numpy \
+    scipy
 
-# Switch back to appuser
+# Copy application code
+COPY --chown=appuser:appuser . .
+
+# Switch to app user
 USER appuser
 
-# Override entrypoint for data processing tasks
-ENTRYPOINT ["python", "-m"]
-CMD ["scripts.ingest_wx", "--help"]
+# Default command for ingestion tasks
+CMD ["python", "-m", "core_django.models.management.commands.init_weather_data"]
+
+# Testing stage
+FROM development as testing
+
+# Install test dependencies
+RUN pip install --no-cache-dir \
+    pytest-django \
+    pytest-mock \
+    coverage \
+    factory-boy
+
+# Copy test configuration
+COPY pytest.ini .
+COPY .coveragerc .
+
+# Run tests
+CMD ["python", "-m", "pytest", "--cov=src", "--cov-report=html", "--cov-report=term"]
+
+# Lint stage
+FROM development as lint
+
+# Run linting and formatting checks
+CMD ["sh", "-c", "black --check . && isort --check-only . && flake8 . && mypy src/"]
