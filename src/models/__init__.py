@@ -14,8 +14,15 @@ from .common import (
 from .crops import CropYieldCreate, CropYieldResponse, CropYieldUpdate
 from .simple_weather import (
     CurrentWeather,
+    DataQualityMetrics,
+    PrecipitationStats,
+    RegionalStats,
     SimpleWeatherResponse,
     SimpleWeatherStation,
+    SystemOverview,
+    SystemStatsResponse,
+    TemperatureStats,
+    TemporalStats,
     WeatherHistory,
     WeatherLocationResponse,
     WeatherSearchResult,
@@ -50,6 +57,14 @@ __all__ = [
     "WeatherSearchResult",
     "WeatherStats",
     "SimpleWeatherResponse",
+    # System Statistics models
+    "SystemOverview",
+    "TemperatureStats",
+    "PrecipitationStats",
+    "DataQualityMetrics",
+    "RegionalStats",
+    "TemporalStats",
+    "SystemStatsResponse",
     # Crop models
     "CropYieldCreate",
     "CropYieldUpdate",
