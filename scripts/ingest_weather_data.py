@@ -45,7 +45,12 @@ try:
 
     from django.db import transaction
 
-    from core_django.models.models import DailyWeather, WeatherStation
+    from core_django.models.models import (
+        DailyWeather,
+        FileProcessingLog,
+        RecordChecksum,
+        WeatherStation,
+    )
 
     DJANGO_AVAILABLE = True
 except ImportError as e:
@@ -67,6 +72,10 @@ class WeatherDataIngestorConfig:
         self.progress_interval: int = 100
         self.enable_metrics: bool = True
         self.log_format: str = "structured"  # structured, simple, json
+        self.enable_checksum: bool = True
+        self.skip_processed_files: bool = True
+        self.enable_record_checksum: bool = False
+        self.reset_checksums: bool = False
 
 
 class WeatherDataLogger:
@@ -127,6 +136,170 @@ class WeatherDataLogger:
     def get_logger(self) -> logging.Logger:
         """Get the configured logger instance."""
         return self.logger
+
+
+class WeatherDataChecksumHandler:
+    """Handle checksum operations for duplicate detection."""
+
+    def __init__(self, config: WeatherDataIngestorConfig, logger: logging.Logger):
+        self.config = config
+        self.logger = logger
+        self.processing_batch = f"batch_{int(time.time())}"
+
+    def calculate_file_checksum(self, file_path: str) -> str:
+        """Calculate SHA-256 checksum of a file."""
+        try:
+            return (
+                FileProcessingLog.calculate_file_checksum(file_path)
+                if DJANGO_AVAILABLE
+                else ""
+            )
+        except Exception as e:
+            self.logger.error(f"Error calculating checksum for {file_path}: {e}")
+            return ""
+
+    def is_file_processed(self, file_path: str) -> bool:
+        """Check if a file has been successfully processed."""
+        if not self.config.enable_checksum or not DJANGO_AVAILABLE:
+            return False
+
+        try:
+            return FileProcessingLog.is_file_processed(file_path)
+        except Exception as e:
+            self.logger.error(
+                f"Error checking file processing status for {file_path}: {e}"
+            )
+            return False
+
+    def start_file_processing(
+        self, file_path: str, station_id: str
+    ) -> FileProcessingLog | None:
+        """Start tracking file processing."""
+        if not self.config.enable_checksum or not DJANGO_AVAILABLE:
+            return None
+
+        try:
+            checksum = self.calculate_file_checksum(file_path)
+            file_size = os.path.getsize(file_path)
+
+            log_entry = FileProcessingLog.objects.create(
+                file_path=file_path,
+                file_name=os.path.basename(file_path),
+                file_size=file_size,
+                file_checksum=checksum,
+                station_id=station_id,
+                processing_started_at=datetime.now(),
+                processing_status="started",
+            )
+
+            self.logger.info(
+                f"📝 Started processing tracking for {file_path} (checksum: {checksum[:8]}...)"
+            )
+            return log_entry
+
+        except Exception as e:
+            self.logger.error(
+                f"Error starting file processing tracking for {file_path}: {e}"
+            )
+            return None
+
+    def complete_file_processing(
+        self,
+        log_entry: FileProcessingLog | None,
+        processed_records: int,
+        skipped_records: int,
+        duplicate_records: int,
+        error_count: int,
+        total_lines: int,
+        error_message: str = "",
+    ):
+        """Mark file processing as complete."""
+        if not log_entry or not DJANGO_AVAILABLE:
+            return
+
+        try:
+            log_entry.processing_completed_at = datetime.now()
+            log_entry.processing_status = "completed" if error_count == 0 else "failed"
+            log_entry.processed_records = processed_records
+            log_entry.skipped_records = skipped_records
+            log_entry.duplicate_records = duplicate_records
+            log_entry.error_count = error_count
+            log_entry.total_lines = total_lines
+            log_entry.error_message = error_message
+            log_entry.save()
+
+            self.logger.info(
+                f"✅ Completed processing tracking for {log_entry.file_name}"
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error completing file processing tracking: {e}")
+
+    def is_record_duplicate(
+        self, station_id: str, date, max_temp, min_temp, precipitation
+    ) -> bool:
+        """Check if a record is a duplicate based on content hash."""
+        if not self.config.enable_record_checksum or not DJANGO_AVAILABLE:
+            return False
+
+        try:
+            return RecordChecksum.is_record_duplicate(
+                station_id, date, max_temp, min_temp, precipitation
+            )
+        except Exception as e:
+            self.logger.error(f"Error checking record duplicate status: {e}")
+            return False
+
+    def create_record_checksum(self, daily_weather: DailyWeather, source_file: str):
+        """Create a checksum record for a daily weather record."""
+        if not self.config.enable_record_checksum or not DJANGO_AVAILABLE:
+            return
+
+        try:
+            RecordChecksum.create_for_record(
+                daily_weather, source_file, self.processing_batch
+            )
+        except Exception as e:
+            self.logger.error(f"Error creating record checksum: {e}")
+
+    def reset_checksums(self):
+        """Reset all checksum data."""
+        if not self.config.reset_checksums or not DJANGO_AVAILABLE:
+            return
+
+        try:
+            file_count = FileProcessingLog.objects.count()
+            record_count = RecordChecksum.objects.count()
+
+            FileProcessingLog.objects.all().delete()
+            RecordChecksum.objects.all().delete()
+
+            self.logger.info(
+                f"🗑️  Reset checksums: deleted {file_count} file logs and {record_count} record checksums"
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error resetting checksums: {e}")
+
+    def get_checksum_stats(self) -> dict:
+        """Get checksum statistics."""
+        if not DJANGO_AVAILABLE:
+            return {}
+
+        try:
+            return {
+                "total_files_processed": FileProcessingLog.objects.filter(
+                    processing_status="completed"
+                ).count(),
+                "total_files_failed": FileProcessingLog.objects.filter(
+                    processing_status="failed"
+                ).count(),
+                "total_record_checksums": RecordChecksum.objects.count(),
+                "processing_batch": self.processing_batch,
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting checksum stats: {e}")
+            return {}
 
 
 class WeatherDataMetrics:
@@ -271,6 +444,7 @@ class WeatherDataIngestor:
         self.logger = self.logger_manager.get_logger()
         self.parser = WeatherDataParser(self.logger)
         self.metrics = WeatherDataMetrics()
+        self.checksum_handler = WeatherDataChecksumHandler(config, self.logger)
 
         # Validate dependencies
         if not DJANGO_AVAILABLE and not config.dry_run:
@@ -304,6 +478,10 @@ class WeatherDataIngestor:
             # Clear existing data if requested
             if self.config.clear_existing and not self.config.dry_run:
                 self._clear_existing_data()
+
+            # Reset checksums if requested
+            if self.config.reset_checksums and not self.config.dry_run:
+                self.checksum_handler.reset_checksums()
 
             # Process files
             success = self._process_files(weather_files)
@@ -375,6 +553,17 @@ class WeatherDataIngestor:
                 f"📡 Processing file {i}/{len(weather_files)}: {os.path.basename(file_path)}"
             )
 
+            # Check if file has already been processed
+            if (
+                self.config.skip_processed_files
+                and self.checksum_handler.is_file_processed(file_path)
+            ):
+                self.logger.info(
+                    f"   ⏭️  Skipping already processed file: {os.path.basename(file_path)}"
+                )
+                self.metrics.processed_files += 1
+                continue
+
             file_start_time = time.time()
 
             try:
@@ -407,6 +596,11 @@ class WeatherDataIngestor:
 
     def _process_weather_file(self, file_path: str, station_id: str) -> int:
         """Process a single weather data file."""
+        # Start checksum tracking
+        processing_log = self.checksum_handler.start_file_processing(
+            file_path, station_id
+        )
+
         # Create or get weather station
         station = None
         if not self.config.dry_run and DJANGO_AVAILABLE:
@@ -441,6 +635,16 @@ class WeatherDataIngestor:
                         continue
 
                     date_obj, max_temp, min_temp, precipitation = parsed_data
+
+                    # Check for record-level duplicates
+                    if self.checksum_handler.is_record_duplicate(
+                        station_id, date_obj, max_temp, min_temp, precipitation
+                    ):
+                        self.logger.debug(
+                            f"   🔄 Skipping duplicate record: {station_id} - {date_obj}"
+                        )
+                        self.metrics.duplicate_records += 1
+                        continue
 
                     # Create record
                     if not self.config.dry_run and DJANGO_AVAILABLE:
@@ -480,6 +684,22 @@ class WeatherDataIngestor:
         if not self.config.dry_run and DJANGO_AVAILABLE and daily_records:
             self._save_daily_records_batch(daily_records)
 
+        # Complete checksum tracking
+        error_count = self.metrics.error_count
+        error_message = ""
+        if error_count > 0:
+            error_message = f"Processing completed with {error_count} errors"
+
+        self.checksum_handler.complete_file_processing(
+            processing_log,
+            processed_count,
+            self.metrics.skipped_records,
+            self.metrics.duplicate_records,
+            error_count,
+            line_number,
+            error_message,
+        )
+
         return processed_count
 
     def _save_daily_records_batch(self, daily_records: list):
@@ -504,6 +724,13 @@ class WeatherDataIngestor:
                     self.logger.debug(
                         f"   ⚠️  Skipped {duplicate_count} duplicate records"
                     )
+
+                # Create record checksums for successfully created records
+                if self.config.enable_record_checksum:
+                    for record in created_records:
+                        self.checksum_handler.create_record_checksum(
+                            record, "current_file"
+                        )
 
         except Exception as e:
             self.logger.error(f"Error saving batch: {e}")
@@ -577,6 +804,25 @@ class WeatherDataIngestor:
             except Exception as e:
                 self.logger.warning(f"Could not verify database counts: {e}")
 
+        # Log checksum statistics
+        if self.config.enable_checksum:
+            checksum_stats = self.checksum_handler.get_checksum_stats()
+            if checksum_stats:
+                self.logger.info("🔐 Checksum Statistics:")
+                self.logger.info(
+                    f"   • Files processed successfully: {checksum_stats.get('total_files_processed', 0)}"
+                )
+                self.logger.info(
+                    f"   • Files failed processing: {checksum_stats.get('total_files_failed', 0)}"
+                )
+                if self.config.enable_record_checksum:
+                    self.logger.info(
+                        f"   • Record checksums created: {checksum_stats.get('total_record_checksums', 0)}"
+                    )
+                self.logger.info(
+                    f"   • Processing batch ID: {checksum_stats.get('processing_batch', 'N/A')}"
+                )
+
 
 def create_argument_parser() -> argparse.ArgumentParser:
     """Create command line argument parser."""
@@ -585,7 +831,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Basic ingestion
+    # Basic ingestion with checksum protection
     python scripts/ingest_weather_data.py
 
     # Custom data directory with logging
@@ -599,6 +845,15 @@ Examples:
 
     # JSON logging format
     python scripts/ingest_weather_data.py --log-format json --log-file logs/ingestion.json
+
+    # Force reprocessing with record-level checksum tracking
+    python scripts/ingest_weather_data.py --force-reprocess --enable-record-checksum
+
+    # Reset checksums and start fresh
+    python scripts/ingest_weather_data.py --reset-checksums
+
+    # Disable checksum protection (faster but no duplicate detection)
+    python scripts/ingest_weather_data.py --disable-checksum
         """,
     )
 
@@ -646,6 +901,31 @@ Examples:
         help="Progress reporting interval (default: 1000)",
     )
 
+    # Checksum options
+    parser.add_argument(
+        "--disable-checksum",
+        action="store_true",
+        help="Disable file checksum tracking and duplicate detection",
+    )
+
+    parser.add_argument(
+        "--force-reprocess",
+        action="store_true",
+        help="Force reprocessing of all files, even if already processed",
+    )
+
+    parser.add_argument(
+        "--enable-record-checksum",
+        action="store_true",
+        help="Enable record-level checksum tracking for enhanced duplicate detection",
+    )
+
+    parser.add_argument(
+        "--reset-checksums",
+        action="store_true",
+        help="Reset all checksum data before processing",
+    )
+
     return parser
 
 
@@ -664,6 +944,10 @@ def main():
     config.clear_existing = args.clear
     config.dry_run = args.dry_run
     config.progress_interval = args.progress_interval
+    config.enable_checksum = not args.disable_checksum
+    config.skip_processed_files = not args.force_reprocess
+    config.enable_record_checksum = args.enable_record_checksum
+    config.reset_checksums = args.reset_checksums
 
     # Run ingestion
     try:

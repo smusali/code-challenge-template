@@ -6,8 +6,12 @@ This module contains the following models:
 - DailyWeather: Daily weather observations
 - YearlyWeatherStats: Aggregated yearly statistics with temperature and precipitation metrics
 - CropYield: Historical agricultural yield data for correlation analysis
+- FileProcessingLog: Track file-level processing with checksums and metadata
+- RecordChecksum: Track record-level checksums for duplicate detection
 """
 
+
+import hashlib
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -389,3 +393,205 @@ class CropYield(models.Model):
         # This would need to be customized based on actual agricultural data
         # For now, return None as we don't have area information
         return None
+
+
+class FileProcessingLog(models.Model):
+    """
+    Track file-level processing with checksums and metadata.
+
+    This model provides duplicate detection and processing history tracking
+    for weather data files to prevent reprocessing unchanged files.
+    """
+
+    file_path = models.CharField(
+        max_length=500, help_text="Relative path to the processed file"
+    )
+    file_name = models.CharField(max_length=255, help_text="Name of the processed file")
+    file_size = models.BigIntegerField(help_text="Size of the file in bytes")
+    file_checksum = models.CharField(
+        max_length=64, help_text="SHA-256 checksum of the file contents"
+    )
+    station_id = models.CharField(
+        max_length=20, help_text="Weather station ID extracted from filename"
+    )
+
+    # Processing metadata
+    processing_started_at = models.DateTimeField(
+        help_text="When file processing started"
+    )
+    processing_completed_at = models.DateTimeField(
+        null=True, blank=True, help_text="When file processing completed successfully"
+    )
+    processing_status = models.CharField(
+        max_length=20,
+        choices=[
+            ("started", "Processing Started"),
+            ("completed", "Processing Completed"),
+            ("failed", "Processing Failed"),
+            ("skipped", "Processing Skipped"),
+        ],
+        default="started",
+        help_text="Current processing status",
+    )
+
+    # Processing results
+    total_lines = models.IntegerField(
+        default=0, help_text="Total number of lines in the file"
+    )
+    processed_records = models.IntegerField(
+        default=0, help_text="Number of records successfully processed"
+    )
+    skipped_records = models.IntegerField(
+        default=0, help_text="Number of records skipped due to errors"
+    )
+    duplicate_records = models.IntegerField(
+        default=0, help_text="Number of duplicate records found"
+    )
+
+    # Error tracking
+    error_message = models.TextField(
+        blank=True, help_text="Error message if processing failed"
+    )
+    error_count = models.IntegerField(
+        default=0, help_text="Number of errors encountered during processing"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = "models"
+        db_table = "file_processing_logs"
+        verbose_name = "File Processing Log"
+        verbose_name_plural = "File Processing Logs"
+        unique_together = [["file_path", "file_checksum"]]
+        indexes = [
+            models.Index(fields=["file_path"]),
+            models.Index(fields=["file_checksum"]),
+            models.Index(fields=["station_id"]),
+            models.Index(fields=["processing_status"]),
+            models.Index(fields=["processing_started_at"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.file_name} - {self.processing_status}"
+
+    @classmethod
+    def calculate_file_checksum(cls, file_path: str) -> str:
+        """Calculate SHA-256 checksum of a file."""
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(chunk)
+        return sha256_hash.hexdigest()
+
+    @classmethod
+    def is_file_processed(cls, file_path: str) -> bool:
+        """Check if a file has been successfully processed."""
+        try:
+            current_checksum = cls.calculate_file_checksum(file_path)
+            return cls.objects.filter(
+                file_path=file_path,
+                file_checksum=current_checksum,
+                processing_status="completed",
+            ).exists()
+        except Exception:
+            return False
+
+    @classmethod
+    def get_processing_history(cls, file_path: str):
+        """Get processing history for a file."""
+        return cls.objects.filter(file_path=file_path).order_by("-created_at")
+
+
+class RecordChecksum(models.Model):
+    """
+    Track record-level checksums for duplicate detection.
+
+    This model provides record-level duplicate detection using content hashing
+    to prevent duplicate weather observations even across different files.
+    """
+
+    station_id = models.CharField(max_length=20, help_text="Weather station ID")
+    date = models.DateField(help_text="Date of the weather observation")
+    content_hash = models.CharField(
+        max_length=64, help_text="SHA-256 hash of the record content"
+    )
+
+    # Reference to the actual weather record
+    daily_weather = models.OneToOneField(
+        DailyWeather,
+        on_delete=models.CASCADE,
+        related_name="record_checksum",
+        help_text="Associated daily weather record",
+    )
+
+    # Processing metadata
+    source_file = models.CharField(
+        max_length=255, help_text="Source file where this record was first processed"
+    )
+    processing_batch = models.CharField(
+        max_length=100, blank=True, help_text="Processing batch identifier"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = "models"
+        db_table = "record_checksums"
+        verbose_name = "Record Checksum"
+        verbose_name_plural = "Record Checksums"
+        unique_together = [["station_id", "date", "content_hash"]]
+        indexes = [
+            models.Index(fields=["station_id", "date"]),
+            models.Index(fields=["content_hash"]),
+            models.Index(fields=["source_file"]),
+            models.Index(fields=["processing_batch"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.station_id} - {self.date} - {self.content_hash[:8]}"
+
+    @classmethod
+    def calculate_record_hash(
+        cls, station_id: str, date, max_temp, min_temp, precipitation
+    ) -> str:
+        """Calculate SHA-256 hash of a weather record's content."""
+        content = f"{station_id}|{date}|{max_temp}|{min_temp}|{precipitation}"
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def is_record_duplicate(
+        cls, station_id: str, date, max_temp, min_temp, precipitation
+    ) -> bool:
+        """Check if a record with this content already exists."""
+        content_hash = cls.calculate_record_hash(
+            station_id, date, max_temp, min_temp, precipitation
+        )
+        return cls.objects.filter(
+            station_id=station_id, date=date, content_hash=content_hash
+        ).exists()
+
+    @classmethod
+    def create_for_record(
+        cls, daily_weather: DailyWeather, source_file: str, processing_batch: str = ""
+    ):
+        """Create a checksum record for a DailyWeather instance."""
+        content_hash = cls.calculate_record_hash(
+            daily_weather.station.station_id,
+            daily_weather.date,
+            daily_weather.max_temp,
+            daily_weather.min_temp,
+            daily_weather.precipitation,
+        )
+
+        return cls.objects.create(
+            station_id=daily_weather.station.station_id,
+            date=daily_weather.date,
+            content_hash=content_hash,
+            daily_weather=daily_weather,
+            source_file=source_file,
+            processing_batch=processing_batch,
+        )
