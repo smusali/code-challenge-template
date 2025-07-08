@@ -7,7 +7,6 @@ daily weather observations, and yearly weather statistics.
 
 import logging
 from datetime import date, datetime
-from typing import Optional
 
 from django.core.exceptions import ValidationError
 from django.db.models import Max, Min, Q
@@ -20,10 +19,7 @@ from core_django.utils.units import (
     tenths_to_celsius,
     tenths_to_millimeters,
 )
-from src.models.common import (
-    PaginatedResponse,
-    SuccessResponse,
-)
+from src.models.common import PaginatedResponse, SuccessResponse
 from src.models.weather import (
     DailyWeatherCreate,
     DailyWeatherResponse,
@@ -128,10 +124,10 @@ def convert_yearly_stats_to_response(
 @router.get("/stations", response_model=PaginatedResponse[WeatherStationResponse])
 async def list_weather_stations(
     pagination: dict = Depends(get_pagination_params),
-    search: Optional[str] = Query(None, description="Search by station ID or name"),
-    state: Optional[str] = Query(None, description="Filter by state"),
-    sort_by: Optional[str] = Query("station_id", description="Sort by field"),
-    sort_order: Optional[str] = Query(
+    search: str | None = Query(None, description="Search by station ID or name"),
+    state: str | None = Query(None, description="Filter by state"),
+    sort_by: str | None = Query("station_id", description="Sort by field"),
+    sort_order: str | None = Query(
         "asc", regex="^(asc|desc)$", description="Sort order"
     ),
 ):
@@ -320,17 +316,17 @@ async def delete_weather_station(station_id: str):
 @router.get("/daily", response_model=PaginatedResponse[DailyWeatherResponse])
 async def list_daily_weather(
     pagination: dict = Depends(get_pagination_params),
-    station_id: Optional[str] = Query(None, description="Filter by station ID"),
-    start_date: Optional[date] = Query(None, description="Start date filter"),
-    end_date: Optional[date] = Query(None, description="End date filter"),
-    has_temp: Optional[bool] = Query(
+    station_id: str | None = Query(None, description="Filter by station ID"),
+    start_date: date | None = Query(None, description="Start date filter"),
+    end_date: date | None = Query(None, description="End date filter"),
+    has_temp: bool | None = Query(
         None, description="Filter records with temperature data"
     ),
-    has_precipitation: Optional[bool] = Query(
+    has_precipitation: bool | None = Query(
         None, description="Filter records with precipitation data"
     ),
-    sort_by: Optional[str] = Query("date", description="Sort by field"),
-    sort_order: Optional[str] = Query(
+    sort_by: str | None = Query("date", description="Sort by field"),
+    sort_order: str | None = Query(
         "desc", regex="^(asc|desc)$", description="Sort order"
     ),
 ):
@@ -544,12 +540,12 @@ async def delete_daily_weather(record_id: int):
 )
 async def list_yearly_stats(
     pagination: dict = Depends(get_pagination_params),
-    station_id: Optional[str] = Query(None, description="Filter by station ID"),
-    year: Optional[int] = Query(None, description="Filter by year"),
-    start_year: Optional[int] = Query(None, description="Start year filter"),
-    end_year: Optional[int] = Query(None, description="End year filter"),
-    sort_by: Optional[str] = Query("year", description="Sort by field"),
-    sort_order: Optional[str] = Query(
+    station_id: str | None = Query(None, description="Filter by station ID"),
+    year: int | None = Query(None, description="Filter by year"),
+    start_year: int | None = Query(None, description="Start year filter"),
+    end_year: int | None = Query(None, description="End year filter"),
+    sort_by: str | None = Query("year", description="Sort by field"),
+    sort_order: str | None = Query(
         "desc", regex="^(asc|desc)$", description="Sort order"
     ),
 ):

@@ -7,7 +7,7 @@ weather data analysis, trend analysis, and correlations.
 
 import logging
 from datetime import date
-from typing import Any, Optional
+from typing import Any
 
 from django.db.models import Avg, Count, Max, Min, Sum
 from fastapi import APIRouter, HTTPException, Query, status
@@ -34,15 +34,13 @@ class StationStatistics(BaseModel):
     """Statistics for a weather station."""
 
     station_id: str = Field(..., description="Weather station ID")
-    station_name: Optional[str] = Field(None, description="Station name")
+    station_name: str | None = Field(None, description="Station name")
     total_records: int = Field(..., description="Total daily records")
-    date_range: dict[str, Optional[date]] = Field(
-        ..., description="Date range of records"
-    )
-    temperature_stats: dict[str, Optional[float]] = Field(
+    date_range: dict[str, date | None] = Field(..., description="Date range of records")
+    temperature_stats: dict[str, float | None] = Field(
         ..., description="Temperature statistics"
     )
-    precipitation_stats: dict[str, Optional[float]] = Field(
+    precipitation_stats: dict[str, float | None] = Field(
         ..., description="Precipitation statistics"
     )
     data_completeness: dict[str, float] = Field(
@@ -54,12 +52,12 @@ class TemperatureTrend(BaseModel):
     """Temperature trend analysis."""
 
     period: str = Field(..., description="Time period (monthly/yearly)")
-    station_id: Optional[str] = Field(None, description="Station ID if specific")
+    station_id: str | None = Field(None, description="Station ID if specific")
     data_points: list[dict[str, Any]] = Field(
         ..., description="Temperature data points"
     )
     trend_direction: str = Field(..., description="Overall trend direction")
-    correlation_coefficient: Optional[float] = Field(
+    correlation_coefficient: float | None = Field(
         None, description="Correlation coefficient"
     )
 
@@ -68,7 +66,7 @@ class PrecipitationPattern(BaseModel):
     """Precipitation pattern analysis."""
 
     period: str = Field(..., description="Time period (monthly/yearly)")
-    station_id: Optional[str] = Field(None, description="Station ID if specific")
+    station_id: str | None = Field(None, description="Station ID if specific")
     data_points: list[dict[str, Any]] = Field(
         ..., description="Precipitation data points"
     )
@@ -184,9 +182,9 @@ async def get_station_statistics(station_id: str):
 @router.get("/temperature-trends", response_model=TemperatureTrend)
 async def get_temperature_trends(
     period: str = Query(..., regex="^(monthly|yearly)$", description="Time period"),
-    station_id: Optional[str] = Query(None, description="Specific station ID"),
-    start_year: Optional[int] = Query(None, description="Start year"),
-    end_year: Optional[int] = Query(None, description="End year"),
+    station_id: str | None = Query(None, description="Specific station ID"),
+    start_year: int | None = Query(None, description="Start year"),
+    end_year: int | None = Query(None, description="End year"),
 ):
     """
     Get temperature trend analysis for specified period.
@@ -311,9 +309,9 @@ async def get_temperature_trends(
 @router.get("/precipitation-patterns", response_model=PrecipitationPattern)
 async def get_precipitation_patterns(
     period: str = Query(..., regex="^(monthly|yearly)$", description="Time period"),
-    station_id: Optional[str] = Query(None, description="Specific station ID"),
-    start_year: Optional[int] = Query(None, description="Start year"),
-    end_year: Optional[int] = Query(None, description="End year"),
+    station_id: str | None = Query(None, description="Specific station ID"),
+    start_year: int | None = Query(None, description="Start year"),
+    end_year: int | None = Query(None, description="End year"),
 ):
     """
     Get precipitation pattern analysis for specified period.
@@ -452,8 +450,8 @@ async def get_precipitation_patterns(
 @router.get("/weather-crop-correlation", response_model=WeatherCropCorrelation)
 async def get_weather_crop_correlation(
     crop_type: str = Query(..., description="Crop type to analyze"),
-    start_year: Optional[int] = Query(None, description="Start year"),
-    end_year: Optional[int] = Query(None, description="End year"),
+    start_year: int | None = Query(None, description="Start year"),
+    end_year: int | None = Query(None, description="End year"),
 ):
     """
     Analyze correlation between weather data and crop yields.
@@ -545,9 +543,9 @@ async def get_regional_comparison(
     metric: str = Query(
         ..., regex="^(temperature|precipitation)$", description="Comparison metric"
     ),
-    year: Optional[int] = Query(None, description="Specific year"),
-    start_year: Optional[int] = Query(None, description="Start year"),
-    end_year: Optional[int] = Query(None, description="End year"),
+    year: int | None = Query(None, description="Specific year"),
+    start_year: int | None = Query(None, description="Start year"),
+    end_year: int | None = Query(None, description="End year"),
 ):
     """
     Compare weather metrics across different regions.

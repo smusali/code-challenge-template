@@ -6,7 +6,7 @@ to the Django CropYield model.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, validator
 
@@ -23,7 +23,7 @@ class CropYieldBase(BaseModel):
     country: str = Field(
         default="US", max_length=3, description="Country code (e.g., US, CA, MX)"
     )
-    state: Optional[str] = Field(
+    state: str | None = Field(
         None, max_length=2, description="State code for regional data (optional)"
     )
     yield_value: int = Field(
@@ -34,7 +34,7 @@ class CropYieldBase(BaseModel):
         max_length=30,
         description="Unit of measurement for yield value",
     )
-    source: Optional[str] = Field(
+    source: str | None = Field(
         None, max_length=100, description="Data source or reference"
     )
 
@@ -99,10 +99,10 @@ class CropYieldCreate(CropYieldBase):
 class CropYieldUpdate(CropYieldBase):
     """Model for updating an existing crop yield record."""
 
-    year: Optional[int] = Field(
+    year: int | None = Field(
         None, ge=1800, le=2100, description="Year for the crop yield data"
     )
-    yield_value: Optional[int] = Field(
+    yield_value: int | None = Field(
         None, ge=0, description="Crop yield value in appropriate units"
     )
 
@@ -145,7 +145,7 @@ class CropYieldSummary(BaseModel):
     """Summary statistics for crop yield data."""
 
     total_records: int = Field(..., description="Total number of crop yield records")
-    year_range: dict[str, Optional[int]] = Field(
+    year_range: dict[str, int | None] = Field(
         ..., description="Range of years with crop data"
     )
     crop_types: list[str] = Field(..., description="List of available crop types")
@@ -180,14 +180,14 @@ class CropYieldTrend(BaseModel):
 
     crop_type: str = Field(..., description="Type of crop")
     country: str = Field(..., description="Country code")
-    state: Optional[str] = Field(None, description="State code (optional)")
+    state: str | None = Field(None, description="State code (optional)")
     years: list[int] = Field(..., description="Years with data")
     yields: list[int] = Field(..., description="Yield values for each year")
     yield_unit: str = Field(..., description="Unit of measurement")
     trend_direction: str = Field(
         ..., description="Overall trend direction (up/down/stable)"
     )
-    correlation_coefficient: Optional[float] = Field(
+    correlation_coefficient: float | None = Field(
         None, description="Correlation coefficient with year"
     )
 
@@ -211,7 +211,7 @@ class CropYieldComparison(BaseModel):
 
     crop_type: str = Field(..., description="Type of crop being compared")
     yield_unit: str = Field(..., description="Unit of measurement")
-    comparisons: list[dict[str, any]] = Field(
+    comparisons: list[dict[str, Any]] = Field(
         ..., description="List of yield comparisons"
     )
 
@@ -241,17 +241,17 @@ class CropYieldComparison(BaseModel):
 class CropYieldFilter(BaseModel):
     """Filter parameters for crop yield queries."""
 
-    year_start: Optional[int] = Field(None, ge=1800, le=2100, description="Start year")
-    year_end: Optional[int] = Field(None, ge=1800, le=2100, description="End year")
-    crop_types: Optional[list[str]] = Field(
+    year_start: int | None = Field(None, ge=1800, le=2100, description="Start year")
+    year_end: int | None = Field(None, ge=1800, le=2100, description="End year")
+    crop_types: list[str] | None = Field(
         None, description="List of crop types to include"
     )
-    countries: Optional[list[str]] = Field(
+    countries: list[str] | None = Field(
         None, description="List of countries to include"
     )
-    states: Optional[list[str]] = Field(None, description="List of states to include")
-    min_yield: Optional[int] = Field(None, ge=0, description="Minimum yield value")
-    max_yield: Optional[int] = Field(None, ge=0, description="Maximum yield value")
+    states: list[str] | None = Field(None, description="List of states to include")
+    min_yield: int | None = Field(None, ge=0, description="Minimum yield value")
+    max_yield: int | None = Field(None, ge=0, description="Maximum yield value")
 
     @validator("year_end")
     def validate_year_range(cls, v, values):

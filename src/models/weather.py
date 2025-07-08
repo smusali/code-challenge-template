@@ -5,9 +5,9 @@ This module contains Pydantic models for weather stations, daily weather observa
 and yearly weather statistics that correspond to the Django ORM models.
 """
 
-from datetime import date, datetime
+from datetime import date as DateType
+from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 
 from pydantic import BaseModel, Field, validator
 
@@ -15,21 +15,17 @@ from pydantic import BaseModel, Field, validator
 class WeatherStationBase(BaseModel):
     """Base model for weather station data."""
 
-    name: Optional[str] = Field(
+    name: str | None = Field(
         None, max_length=255, description="Human-readable station name"
     )
-    latitude: Optional[Decimal] = Field(
+    latitude: Decimal | None = Field(
         None, ge=-90.0, le=90.0, description="Station latitude in decimal degrees"
     )
-    longitude: Optional[Decimal] = Field(
+    longitude: Decimal | None = Field(
         None, ge=-180.0, le=180.0, description="Station longitude in decimal degrees"
     )
-    elevation: Optional[Decimal] = Field(
-        None, description="Station elevation in meters"
-    )
-    state: Optional[str] = Field(
-        None, max_length=2, description="US state abbreviation"
-    )
+    elevation: Decimal | None = Field(None, description="Station elevation in meters")
+    state: str | None = Field(None, max_length=2, description="US state abbreviation")
 
 
 class WeatherStationCreate(WeatherStationBase):
@@ -100,14 +96,14 @@ class WeatherStationResponse(WeatherStationBase):
 class DailyWeatherBase(BaseModel):
     """Base model for daily weather data."""
 
-    date: date = Field(..., description="Date of the weather observation")
-    max_temp: Optional[int] = Field(
+    date: DateType = Field(..., description="Date of the weather observation")
+    max_temp: int | None = Field(
         None, description="Maximum temperature in tenths of degrees Celsius"
     )
-    min_temp: Optional[int] = Field(
+    min_temp: int | None = Field(
         None, description="Minimum temperature in tenths of degrees Celsius"
     )
-    precipitation: Optional[int] = Field(
+    precipitation: int | None = Field(
         None, ge=0, description="Precipitation in tenths of millimeters"
     )
 
@@ -169,13 +165,13 @@ class DailyWeatherResponse(DailyWeatherBase):
 
     id: int = Field(..., description="Record ID")
     station_id: str = Field(..., description="Weather station identifier")
-    max_temp_celsius: Optional[float] = Field(
+    max_temp_celsius: float | None = Field(
         None, description="Maximum temperature in degrees Celsius"
     )
-    min_temp_celsius: Optional[float] = Field(
+    min_temp_celsius: float | None = Field(
         None, description="Minimum temperature in degrees Celsius"
     )
-    precipitation_mm: Optional[float] = Field(
+    precipitation_mm: float | None = Field(
         None, description="Precipitation in millimeters"
     )
     created_at: datetime = Field(..., description="When the record was created")
@@ -208,27 +204,27 @@ class YearlyWeatherStatsResponse(BaseModel):
     year: int = Field(..., description="Year for these statistics")
 
     # Temperature statistics
-    avg_max_temp: Optional[Decimal] = Field(
+    avg_max_temp: Decimal | None = Field(
         None, description="Average maximum temperature in tenths of degrees Celsius"
     )
-    avg_min_temp: Optional[Decimal] = Field(
+    avg_min_temp: Decimal | None = Field(
         None, description="Average minimum temperature in tenths of degrees Celsius"
     )
-    max_temp: Optional[int] = Field(
+    max_temp: int | None = Field(
         None, description="Highest maximum temperature in tenths of degrees Celsius"
     )
-    min_temp: Optional[int] = Field(
+    min_temp: int | None = Field(
         None, description="Lowest minimum temperature in tenths of degrees Celsius"
     )
 
     # Precipitation statistics
-    total_precipitation: Optional[int] = Field(
+    total_precipitation: int | None = Field(
         None, description="Total precipitation in tenths of millimeters"
     )
-    avg_precipitation: Optional[Decimal] = Field(
+    avg_precipitation: Decimal | None = Field(
         None, description="Average daily precipitation in tenths of millimeters"
     )
-    max_precipitation: Optional[int] = Field(
+    max_precipitation: int | None = Field(
         None, description="Highest daily precipitation in tenths of millimeters"
     )
 
@@ -242,33 +238,33 @@ class YearlyWeatherStatsResponse(BaseModel):
     )
 
     # Converted values for convenience
-    avg_max_temp_celsius: Optional[float] = Field(
+    avg_max_temp_celsius: float | None = Field(
         None, description="Average maximum temperature in degrees Celsius"
     )
-    avg_min_temp_celsius: Optional[float] = Field(
+    avg_min_temp_celsius: float | None = Field(
         None, description="Average minimum temperature in degrees Celsius"
     )
-    max_temp_celsius: Optional[float] = Field(
+    max_temp_celsius: float | None = Field(
         None, description="Highest maximum temperature in degrees Celsius"
     )
-    min_temp_celsius: Optional[float] = Field(
+    min_temp_celsius: float | None = Field(
         None, description="Lowest minimum temperature in degrees Celsius"
     )
-    total_precipitation_mm: Optional[float] = Field(
+    total_precipitation_mm: float | None = Field(
         None, description="Total precipitation in millimeters"
     )
-    avg_precipitation_mm: Optional[float] = Field(
+    avg_precipitation_mm: float | None = Field(
         None, description="Average daily precipitation in millimeters"
     )
-    max_precipitation_mm: Optional[float] = Field(
+    max_precipitation_mm: float | None = Field(
         None, description="Highest daily precipitation in millimeters"
     )
 
     # Data completeness percentages
-    temperature_completeness: Optional[float] = Field(
+    temperature_completeness: float | None = Field(
         None, description="Temperature data completeness percentage"
     )
-    precipitation_completeness: Optional[float] = Field(
+    precipitation_completeness: float | None = Field(
         None, description="Precipitation data completeness percentage"
     )
 
@@ -314,8 +310,8 @@ class WeatherStationWithStats(WeatherStationResponse):
         default_factory=list, description="Yearly statistics for this station"
     )
     total_records: int = Field(0, description="Total daily weather records")
-    first_record_date: Optional[date] = Field(None, description="Date of first record")
-    last_record_date: Optional[date] = Field(None, description="Date of last record")
+    first_record_date: DateType | None = Field(None, description="Date of first record")
+    last_record_date: DateType | None = Field(None, description="Date of last record")
 
     class Config:
         from_attributes = True
@@ -327,13 +323,13 @@ class WeatherDataSummary(BaseModel):
     total_stations: int = Field(..., description="Total number of weather stations")
     total_daily_records: int = Field(..., description="Total daily weather records")
     total_yearly_stats: int = Field(..., description="Total yearly statistics records")
-    date_range: dict[str, Optional[date]] = Field(
+    date_range: dict[str, DateType | None] = Field(
         ..., description="Date range of available data"
     )
-    temperature_range: dict[str, Optional[float]] = Field(
+    temperature_range: dict[str, float | None] = Field(
         ..., description="Temperature range in degrees Celsius"
     )
-    precipitation_range: dict[str, Optional[float]] = Field(
+    precipitation_range: dict[str, float | None] = Field(
         ..., description="Precipitation range in millimeters"
     )
     data_completeness: dict[str, float] = Field(

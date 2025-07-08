@@ -32,8 +32,8 @@ except ImproperlyConfigured as e:
     logging.error(f"Django configuration error: {e}")
     sys.exit(1)
 
-from src.config import settings
-from src.routers import crops, health, stats, weather
+from src.config import settings  # noqa: E402
+from src.routers import crops, health, simple_weather, stats, weather  # noqa: E402
 
 
 @asynccontextmanager
@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
         raise
 
     # Log application configuration
-    logging.info(f"API running in {'DEBUG' if settings.DEBUG else 'PRODUCTION'} mode")
+    logging.info(f"API running in {'DEBUG' if settings.debug else 'PRODUCTION'} mode")
     logging.info(f"Database: {django_settings.DATABASES['default']['NAME']}")
     logging.info(f"Allowed hosts: {django_settings.ALLOWED_HOSTS}")
 
@@ -177,6 +177,12 @@ app.include_router(
     tags=["Statistics & Analytics"],
 )
 
+app.include_router(
+    simple_weather.router,
+    prefix="/api/weather",
+    tags=["Simple Weather API"],
+)
+
 
 # Root endpoint
 @app.get("/", response_model=dict[str, Any])
@@ -192,6 +198,7 @@ async def root():
         "health_check": "/health",
         "endpoints": {
             "weather": "/api/v1/weather",
+            "simple_weather": "/api/weather",
             "crops": "/api/v1/crops",
             "stats": "/api/v1/stats",
         },
@@ -209,8 +216,8 @@ async def api_info():
         "api": {
             "name": "Weather Data Engineering API",
             "version": "1.0.0",
-            "environment": "development" if settings.DEBUG else "production",
-            "debug": settings.DEBUG,
+            "environment": "development" if settings.debug else "production",
+            "debug": settings.debug,
         },
         "database": {
             "engine": django_settings.DATABASES["default"]["ENGINE"],
@@ -241,6 +248,6 @@ if __name__ == "__main__":
         "main:app",
         host=settings.API_HOST,
         port=settings.API_PORT,
-        reload=settings.DEBUG,
+        reload=settings.debug,
         log_level=settings.LOG_LEVEL.lower(),
     )

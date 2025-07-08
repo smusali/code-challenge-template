@@ -7,7 +7,6 @@ including CRUD operations, filtering, and analytics.
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 from django.core.exceptions import ValidationError
 from django.db.models import Avg, Count, Max, Min, Q
@@ -61,13 +60,13 @@ def paginate_queryset(queryset, page: int, page_size: int):
 @router.get("/", response_model=PaginatedResponse[CropYieldResponse])
 async def list_crop_yields(
     pagination: dict = Depends(get_pagination_params),
-    year: Optional[int] = Query(None, description="Filter by year"),
-    crop_type: Optional[str] = Query(None, description="Filter by crop type"),
-    country: Optional[str] = Query(None, description="Filter by country"),
-    state: Optional[str] = Query(None, description="Filter by state"),
-    search: Optional[str] = Query(None, description="Search in crop type or source"),
-    sort_by: Optional[str] = Query("year", description="Sort by field"),
-    sort_order: Optional[str] = Query(
+    year: int | None = Query(None, description="Filter by year"),
+    crop_type: str | None = Query(None, description="Filter by crop type"),
+    country: str | None = Query(None, description="Filter by country"),
+    state: str | None = Query(None, description="Filter by state"),
+    search: str | None = Query(None, description="Search in crop type or source"),
+    sort_by: str | None = Query("year", description="Sort by field"),
+    sort_order: str | None = Query(
         "desc", regex="^(asc|desc)$", description="Sort order"
     ),
 ):
@@ -320,9 +319,9 @@ async def get_crop_yield_summary():
 async def get_crop_yield_trend(
     crop_type: str,
     country: str = Query(..., description="Country code"),
-    state: Optional[str] = Query(None, description="State code (optional)"),
-    start_year: Optional[int] = Query(None, description="Start year"),
-    end_year: Optional[int] = Query(None, description="End year"),
+    state: str | None = Query(None, description="State code (optional)"),
+    start_year: int | None = Query(None, description="Start year"),
+    end_year: int | None = Query(None, description="End year"),
 ):
     """
     Get yield trend data for a specific crop and location.
@@ -407,7 +406,7 @@ async def get_crop_yield_trend(
 async def compare_crop_yields(
     crop_type: str,
     year: int = Query(..., description="Year to compare"),
-    country: Optional[str] = Query(None, description="Filter by country"),
+    country: str | None = Query(None, description="Filter by country"),
     limit: int = Query(10, ge=1, le=50, description="Number of results to return"),
 ):
     """

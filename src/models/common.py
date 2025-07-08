@@ -6,7 +6,7 @@ error handling, and common response patterns.
 """
 
 from datetime import datetime
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -19,10 +19,10 @@ class ErrorResponse(BaseModel):
 
     error: str = Field(..., description="Error type or category")
     message: str = Field(..., description="Human-readable error message")
-    detail: Optional[str] = Field(None, description="Additional error details")
+    detail: str | None = Field(None, description="Additional error details")
     timestamp: datetime = Field(..., description="When the error occurred")
-    path: Optional[str] = Field(None, description="API path where error occurred")
-    request_id: Optional[str] = Field(None, description="Request ID for tracking")
+    path: str | None = Field(None, description="API path where error occurred")
+    request_id: str | None = Field(None, description="Request ID for tracking")
 
     class Config:
         json_schema_extra = {
@@ -162,10 +162,10 @@ class FilterParams(BaseModel):
 
     page: int = Field(default=1, ge=1, description="Page number")
     page_size: int = Field(default=20, ge=1, le=100, description="Items per page")
-    search: Optional[str] = Field(None, description="Search term")
-    sort_by: Optional[str] = Field(None, description="Field to sort by")
-    sort_order: Optional[str] = Field(
-        default="asc", regex="^(asc|desc)$", description="Sort order (asc/desc)"
+    search: str | None = Field(None, description="Search term")
+    sort_by: str | None = Field(None, description="Field to sort by")
+    sort_order: str | None = Field(
+        default="asc", pattern="^(asc|desc)$", description="Sort order (asc/desc)"
     )
 
     class Config:
@@ -183,8 +183,8 @@ class FilterParams(BaseModel):
 class DateRangeFilter(BaseModel):
     """Date range filter for time-based queries."""
 
-    start_date: Optional[datetime] = Field(None, description="Start date (inclusive)")
-    end_date: Optional[datetime] = Field(None, description="End date (inclusive)")
+    start_date: datetime | None = Field(None, description="Start date (inclusive)")
+    end_date: datetime | None = Field(None, description="End date (inclusive)")
 
     class Config:
         json_schema_extra = {
@@ -200,7 +200,7 @@ class SuccessResponse(BaseModel):
 
     success: bool = Field(True, description="Operation success status")
     message: str = Field(..., description="Success message")
-    data: Optional[Any] = Field(None, description="Optional response data")
+    data: Any | None = Field(None, description="Optional response data")
     timestamp: datetime = Field(..., description="Operation timestamp")
 
     class Config:
@@ -219,7 +219,7 @@ class ValidationError(BaseModel):
 
     field: str = Field(..., description="Field that failed validation")
     message: str = Field(..., description="Validation error message")
-    value: Optional[Any] = Field(None, description="Value that failed validation")
+    value: Any | None = Field(None, description="Value that failed validation")
 
     class Config:
         json_schema_extra = {
