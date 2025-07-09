@@ -1,0 +1,125 @@
+version: "3.8"
+
+services:
+  # PostgreSQL database for data ingestion
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: weather_db
+      POSTGRES_USER: weather_user
+      POSTGRES_PASSWORD: weather_pass # pragma: allowlist secret
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U weather_user -d weather_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ingest-network
+
+  # Data ingestion container
+  ingest:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ingest
+    environment:
+      # Database configuration
+      DATABASE_URL: postgresql://weather_user:weather_pass@postgres:5432/weather_db # pragma: allowlist secret
+      DJANGO_SETTINGS_MODULE: core_django.core.settings
+
+      # Batch processing configuration
+      BATCH_SIZE: 1000
+      VERBOSITY: 2
+      CLEAR_DATA: false
+
+      # Optional: Specific processing targets
+      # TARGET_YEAR: 2020
+      # TARGET_STATION: USC00110072
+
+      # Performance tuning
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+      MKL_NUM_THREADS: 1
+      MALLOC_ARENA_MAX: 2
+    volumes:
+      # Mount data directories
+      - ../wx_data:/app/wx_data:ro
+      - ../yld_data:/app/yld_data:ro
+
+      # Mount output directories
+      - ingest_logs:/app/logs
+      - ingest_exports:/app/exports
+
+      # Optional: Mount custom data
+      # - ./custom_data:/app/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ingest-network
+    # Default command (can be overridden)
+    # Use one of: weather-data, crop-yield, yearly-stats, full-pipeline
+    command: ["full-pipeline"]
+
+  # One-time weather data initialization
+  init-weather:
+    extends: ingest
+    environment:
+      BATCH_SIZE: 2000
+      VERBOSITY: 2
+      CLEAR_DATA: true
+    command: ["weather-data"]
+    profiles:
+      - init
+
+  # One-time crop yield initialization
+  init-crops:
+    extends: ingest
+    environment:
+      VERBOSITY: 2
+      CLEAR_DATA: true
+    command: ["crop-yield"]
+    profiles:
+      - init
+
+  # Yearly statistics calculation
+  calc-stats:
+    extends: ingest
+    environment:
+      BATCH_SIZE: 500
+      VERBOSITY: 2
+      CLEAR_DATA: true
+    command: ["yearly-stats"]
+    profiles:
+      - init
+
+  # Database migrations
+  migrate:
+    extends: ingest
+    command: ["migrate"]
+    profiles:
+      - setup
+
+  # Health check container
+  health-check:
+    extends: ingest
+    command: ["health"]
+    profiles:
+      - check
+
+volumes:
+  postgres_data:
+    driver: local
+  ingest_logs:
+    driver: local
+  ingest_exports:
+    driver: local
+
+networks:
+  ingest-network:
+    driver: bridge
