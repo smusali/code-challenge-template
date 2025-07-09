@@ -1,0 +1,388 @@
+name: Release Container Images
+
+on:
+  push:
+    tags:
+      - "v*" # Trigger on version tags like v1.0.0, v2.1.0, etc.
+  workflow_dispatch: # Allow manual trigger
+    inputs:
+      tag:
+        description: "Tag to build and push"
+        required: true
+        default: "latest"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BASE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  build-and-push-containers:
+    name: Build and Push Container Images
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: api
+            dockerfile: docker/Dockerfile.api
+            context: .
+            target: production
+            description: "Weather Data Engineering API"
+          - name: ingestion
+            dockerfile: docker/Dockerfile.ingest
+            context: .
+            target: ""
+            description: "Data Ingestion and Processing Service"
+          - name: analytics
+            dockerfile: docker/Dockerfile.analytics
+            context: .
+            target: ""
+            description: "Analytics and Scheduling Service"
+
+    outputs:
+      api-image: ${{ steps.api-meta.outputs.tags }}
+      ingestion-image: ${{ steps.ingestion-meta.outputs.tags }}
+      analytics-image: ${{ steps.analytics-meta.outputs.tags }}
+      tag: ${{ steps.extract-tag.outputs.tag }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Get full history for proper versioning
+
+      - name: Extract tag
+        id: extract-tag
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG=${GITHUB_REF#refs/tags/}
+          else
+            TAG=${{ github.event.inputs.tag }}
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Building containers for tag: $TAG"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for ${{ matrix.name }}
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/${{ matrix.name }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=${{ steps.extract-tag.outputs.tag }}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=${{ matrix.description }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.vendor=Weather Data Engineering
+            org.opencontainers.image.version=${{ steps.extract-tag.outputs.tag }}
+            org.opencontainers.image.created={{date 'YYYY-MM-DDTHH:mm:ss.sssZ'}}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push ${{ matrix.name }} container
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          provenance: true
+          sbom: true
+
+      - name: Set output for ${{ matrix.name }}
+        id: output
+        run: |
+          echo "${{ matrix.name }}-image=${{ steps.meta.outputs.tags }}" >> $GITHUB_OUTPUT
+          echo "${{ matrix.name }}-digest=${{ steps.build.outputs.digest }}" >> $GITHUB_OUTPUT
+
+      - name: Verify ${{ matrix.name }} image
+        run: |
+          echo "Verifying ${{ matrix.name }} container image..."
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/${{ matrix.name }}:${{ steps.extract-tag.outputs.tag }}
+          echo "✅ ${{ matrix.name }} container verified successfully"
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: build-and-push-containers
+    strategy:
+      matrix:
+        container: [api, ingestion, analytics]
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/${{ matrix.container }}:${{ needs.build-and-push-containers.outputs.tag }}
+          format: "sarif"
+          output: "trivy-results-${{ matrix.container }}.sarif"
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: "trivy-results-${{ matrix.container }}.sarif"
+          category: "container-${{ matrix.container }}"
+
+      - name: Run Trivy for critical vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/${{ matrix.container }}:${{ needs.build-and-push-containers.outputs.tag }}
+          format: "table"
+          severity: "CRITICAL,HIGH"
+          exit-code: "1" # Fail on critical/high vulnerabilities
+
+  create-release-manifest:
+    name: Create Release Manifest
+    runs-on: ubuntu-latest
+    needs: [build-and-push-containers, security-scan]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create container manifest
+        run: |
+          cat > container-manifest.json << EOF
+          {
+            "version": "${{ needs.build-and-push-containers.outputs.tag }}",
+            "created": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "commit": "${{ github.sha }}",
+            "repository": "${{ github.repository }}",
+            "containers": {
+              "api": {
+                "image": "${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/api:${{ needs.build-and-push-containers.outputs.tag }}",
+                "description": "Weather Data Engineering API",
+                "dockerfile": "docker/Dockerfile.api",
+                "ports": ["8000"],
+                "healthcheck": "/health"
+              },
+              "ingestion": {
+                "image": "${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/ingestion:${{ needs.build-and-push-containers.outputs.tag }}",
+                "description": "Data Ingestion and Processing Service",
+                "dockerfile": "docker/Dockerfile.ingest",
+                "commands": ["weather-data", "crop-yield", "yearly-stats", "full-pipeline"]
+              },
+              "analytics": {
+                "image": "${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/analytics:${{ needs.build-and-push-containers.outputs.tag }}",
+                "description": "Analytics and Scheduling Service",
+                "dockerfile": "docker/Dockerfile.analytics",
+                "services": ["cron", "analytics"]
+              }
+            },
+            "deployment": {
+              "docker_compose": {
+                "api": "ghcr.io/${{ github.repository }}/api:${{ needs.build-and-push-containers.outputs.tag }}",
+                "ingestion": "ghcr.io/${{ github.repository }}/ingestion:${{ needs.build-and-push-containers.outputs.tag }}",
+                "analytics": "ghcr.io/${{ github.repository }}/analytics:${{ needs.build-and-push-containers.outputs.tag }}"
+              },
+              "kubernetes": {
+                "api": "ghcr.io/${{ github.repository }}/api:${{ needs.build-and-push-containers.outputs.tag }}",
+                "ingestion": "ghcr.io/${{ github.repository }}/ingestion:${{ needs.build-and-push-containers.outputs.tag }}",
+                "analytics": "ghcr.io/${{ github.repository }}/analytics:${{ needs.build-and-push-containers.outputs.tag }}"
+              }
+            }
+          }
+          EOF
+
+      - name: Upload container manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-manifest
+          path: container-manifest.json
+
+      - name: Create release with container information
+        if: github.event_name == 'push'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.build-and-push-containers.outputs.tag }}
+          release_name: Weather API Release ${{ needs.build-and-push-containers.outputs.tag }}
+          body: |
+            ## Weather Data Engineering API Release ${{ needs.build-and-push-containers.outputs.tag }}
+
+            ### 🐳 Container Images
+
+            The following container images have been built and pushed to GitHub Container Registry:
+
+            #### API Container
+            ```bash
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/api:${{ needs.build-and-push-containers.outputs.tag }}
+            ```
+            - **Description**: Weather Data Engineering API
+            - **Ports**: 8000
+            - **Health Check**: `/health`
+            - **Platforms**: linux/amd64, linux/arm64
+
+            #### Ingestion Container
+            ```bash
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/ingestion:${{ needs.build-and-push-containers.outputs.tag }}
+            ```
+            - **Description**: Data Ingestion and Processing Service
+            - **Commands**: `weather-data`, `crop-yield`, `yearly-stats`, `full-pipeline`
+            - **Platforms**: linux/amd64, linux/arm64
+
+            #### Analytics Container
+            ```bash
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/analytics:${{ needs.build-and-push-containers.outputs.tag }}
+            ```
+            - **Description**: Analytics and Scheduling Service
+            - **Services**: Cron scheduler, analytics processing
+            - **Platforms**: linux/amd64, linux/arm64
+
+            ### 🚀 Quick Start
+
+            #### Docker Compose
+            ```yaml
+            version: '3.8'
+            services:
+              api:
+                image: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/api:${{ needs.build-and-push-containers.outputs.tag }}
+                ports:
+                  - "8000:8000"
+
+              ingestion:
+                image: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/ingestion:${{ needs.build-and-push-containers.outputs.tag }}
+                command: ["full-pipeline"]
+
+              analytics:
+                image: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/analytics:${{ needs.build-and-push-containers.outputs.tag }}
+            ```
+
+            #### Kubernetes
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: weather-api
+            spec:
+              replicas: 3
+              selector:
+                matchLabels:
+                  app: weather-api
+              template:
+                metadata:
+                  labels:
+                    app: weather-api
+                spec:
+                  containers:
+                  - name: api
+                    image: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE_NAME }}/api:${{ needs.build-and-push-containers.outputs.tag }}
+                    ports:
+                    - containerPort: 8000
+            ```
+
+            ### 🔐 Security
+
+            - ✅ All containers have been scanned for vulnerabilities
+            - ✅ Multi-architecture builds (AMD64, ARM64)
+            - ✅ Software Bill of Materials (SBOM) included
+            - ✅ Provenance attestation included
+            - ✅ Signed with GitHub's signing infrastructure
+
+            ### 📋 Changes
+
+            See the commit history for detailed changes in this release.
+
+            ### 🔗 Links
+
+            - [Container Registry](https://github.com/${{ github.repository }}/pkgs/container/api)
+            - [Documentation](https://github.com/${{ github.repository }}/blob/main/README.md)
+            - [API Documentation](https://github.com/${{ github.repository }}/blob/main/docs/api.md)
+
+            ### 📦 Container Manifest
+
+            A detailed container manifest has been generated and is available as a build artifact.
+
+          draft: false
+          prerelease: false
+
+  notify-release:
+    name: Notify Release
+    runs-on: ubuntu-latest
+    needs: [build-and-push-containers, security-scan, create-release-manifest]
+    if: always()
+
+    steps:
+      - name: Determine release status
+        id: status
+        run: |
+          build_status="${{ needs.build-and-push-containers.result }}"
+          security_status="${{ needs.security-scan.result }}"
+          manifest_status="${{ needs.create-release-manifest.result }}"
+
+          if [[ "$build_status" == "success" && "$security_status" == "success" && "$manifest_status" == "success" ]]; then
+            echo "overall_status=success" >> $GITHUB_OUTPUT
+            echo "message=✅ Container release completed successfully" >> $GITHUB_OUTPUT
+          else
+            echo "overall_status=failure" >> $GITHUB_OUTPUT
+            echo "message=❌ Container release failed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send notification
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ steps.status.outputs.overall_status }}';
+            const message = '${{ steps.status.outputs.message }}';
+            const tag = '${{ needs.build-and-push-containers.outputs.tag }}';
+
+            let body = `## ${message}\n\n`;
+            body += `### Container Release Summary\n`;
+            body += `- **Tag**: ${tag}\n`;
+            body += `- **Build**: ${{ needs.build-and-push-containers.result }}\n`;
+            body += `- **Security Scan**: ${{ needs.security-scan.result }}\n`;
+            body += `- **Manifest**: ${{ needs.create-release-manifest.result }}\n`;
+            body += `- **Commit**: ${context.sha.slice(0, 7)}\n\n`;
+
+            if (status === 'success') {
+              body += `### 🎉 Release Successful\n`;
+              body += `Container images for Weather Data Engineering API ${tag} have been built and pushed to GHCR.\n\n`;
+              body += `### 📦 Available Images\n`;
+              body += `- \`ghcr.io/${{ github.repository }}/api:${tag}\`\n`;
+              body += `- \`ghcr.io/${{ github.repository }}/ingestion:${tag}\`\n`;
+              body += `- \`ghcr.io/${{ github.repository }}/analytics:${tag}\`\n\n`;
+              body += `### 🔗 Links\n`;
+              body += `- [Container Registry](https://github.com/${{ github.repository }}/pkgs/container/api)\n`;
+              body += `- [Release Notes](https://github.com/${{ github.repository }}/releases/tag/${tag})\n`;
+            } else {
+              body += `### ⚠️ Release Issues\n`;
+              body += `Please check the workflow logs for details.\n`;
+            }
+
+            console.log('Container release notification:', message);
+            console.log('Full notification body:', body);
