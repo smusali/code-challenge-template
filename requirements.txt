@@ -1,24 +1,54 @@
-black>=23.11.0,<24.0.0
-click>=8.1.7,<9.0.0
-dj-database-url>=2.1.0,<3.0.0
-django>=4.2.7,<5.0.0
-django-stubs>=4.2.7,<5.0.0
-# Core dependencies
-fastapi>=0.104.1,<1.0.0
-gunicorn>=21.2.0,<22.0.0
-isort>=5.12.0,<6.0.0
-mypy>=1.7.1,<2.0.0
-pre-commit>=3.6.0,<4.0.0
-psutil>=5.9.0,<6.0.0
-psycopg2-binary>=2.9.9,<3.0.0
-pydantic>=2.5.0,<3.0.0
-pydantic-settings>=2.1.0,<3.0.0
 
-# Development dependencies
-pytest>=7.4.3,<8.0.0
-pytest-django>=4.7.0,<5.0.0
-python-dotenv>=1.0.0,<2.0.0
-redis>=5.0.1,<6.0.0
-requests>=2.31.0,<3.0.0
-ruff>=0.1.6,<1.0.0
-uvicorn[standard]>=0.24.0,<1.0.0
+# Async utilities
+asgiref==3.7.2
+asyncpg==0.29.0
+
+# Security scanning
+bandit==1.7.5
+
+# Code Quality
+black==23.11.0
+databases[postgresql]==0.8.0
+django==4.2.7
+factory-boy==3.3.0
+# Core API Framework
+fastapi==0.104.1
+httpx==0.25.2
+isort==5.12.0
+
+# API Documentation
+jinja2==3.1.2
+
+# Performance and monitoring
+locust==2.17.0
+
+# Documentation
+mkdocs==1.5.3
+mkdocs-material==9.4.8
+mypy==1.7.1
+numpy==1.25.2
+
+# Data Processing
+pandas==2.1.4
+passlib[bcrypt]==1.7.4
+pre-commit==3.5.0
+
+# Database
+psycopg2-binary==2.9.9
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Development and Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+
+# Environment and Configuration
+python-dotenv==1.0.0
+
+# CORS and Security
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.6
+ruff==0.1.6
+safety==2.3.5
+uvicorn[standard]==0.24.0

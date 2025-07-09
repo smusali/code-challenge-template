@@ -8,14 +8,15 @@ Usage:
     python manage.py init_weather_data [--clear] [--batch-size=1000]
 """
 
+import asyncio
 import glob
 import os
 from datetime import datetime
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
 
 from core_django.models.models import DailyWeather, WeatherStation
+from core_django.utils.async_bulk_writer import BulkWriterConfig, WeatherDataBulkWriter
 
 
 class Command(BaseCommand):
@@ -30,8 +31,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--batch-size",
             type=int,
-            default=1000,
-            help="Number of records to process in each batch (default: 1000)",
+            default=2000,
+            help="Number of records to process in each batch (default: 2000)",
         )
         parser.add_argument(
             "--data-dir",
@@ -44,6 +45,12 @@ class Command(BaseCommand):
             action="store_true",
             help="Parse files but don't save to database",
         )
+        parser.add_argument(
+            "--max-concurrent-batches",
+            type=int,
+            default=4,
+            help="Maximum number of concurrent batch operations (default: 4)",
+        )
 
     def handle(self, *args, **options):
         """Main command handler."""
@@ -51,6 +58,7 @@ class Command(BaseCommand):
         self.batch_size = options["batch_size"]
         self.data_dir = options["data_dir"]
         self.dry_run = options["dry_run"]
+        self.max_concurrent_batches = options["max_concurrent_batches"]
 
         # Validate data directory exists
         if not os.path.exists(self.data_dir):
@@ -71,13 +79,34 @@ class Command(BaseCommand):
         self.stdout.write(f"📁 Data directory: {self.data_dir}")
         self.stdout.write(f"📊 Found {len(weather_files)} weather station files")
         self.stdout.write(f"📦 Batch size: {self.batch_size}")
+        self.stdout.write(f"🔄 Max concurrent batches: {self.max_concurrent_batches}")
 
         if self.dry_run:
             self.stdout.write(
                 self.style.WARNING("🔍 DRY RUN MODE - No data will be saved")
             )
 
-        # Process all files
+        # Run async processing
+        try:
+            asyncio.run(self.process_files_async(weather_files))
+        except Exception as e:
+            raise CommandError(f"Error during async processing: {e}")
+
+    async def process_files_async(self, weather_files):
+        """Process all weather files using async bulk operations."""
+        # Configure async bulk writer
+        config = BulkWriterConfig(
+            batch_size=self.batch_size,
+            max_concurrent_batches=self.max_concurrent_batches,
+            progress_callback=self.progress_callback if self.verbosity >= 1 else None,
+            progress_interval=self.batch_size,
+        )
+
+        bulk_writer = WeatherDataBulkWriter(config)
+
+        # Collect all stations and daily records
+        all_stations = []
+        all_daily_records = []
         total_stations = 0
         total_records = 0
 
@@ -88,14 +117,21 @@ class Command(BaseCommand):
 
             try:
                 station_id = self.extract_station_id(file_path)
-                records_count = self.process_weather_file(file_path, station_id)
+                station, daily_records = await self.parse_weather_file_async(
+                    file_path, station_id
+                )
 
-                total_stations += 1
-                total_records += records_count
+                if station:
+                    all_stations.append(station)
+                    total_stations += 1
+
+                if daily_records:
+                    all_daily_records.extend(daily_records)
+                    total_records += len(daily_records)
 
                 if self.verbosity >= 2:
                     self.stdout.write(
-                        f"   ✅ Processed {records_count:,} records for station {station_id}"
+                        f"   ✅ Parsed {len(daily_records):,} records for station {station_id}"
                     )
 
             except Exception as e:
@@ -103,6 +139,37 @@ class Command(BaseCommand):
                     self.style.ERROR(f"   ❌ Error processing {file_path}: {e}")
                 )
                 continue
+
+        if not self.dry_run and (all_stations or all_daily_records):
+            # Bulk create stations first
+            if all_stations:
+                self.stdout.write(
+                    f"\n🏗️  Creating {len(all_stations):,} weather stations..."
+                )
+                station_metrics = await bulk_writer.bulk_create_weather_stations_async(
+                    all_stations,
+                    self.progress_callback if self.verbosity >= 1 else None,
+                )
+                self.stdout.write(
+                    f"   ✅ Created {station_metrics.successful_records:,} stations "
+                    f"in {station_metrics.duration:.2f}s "
+                    f"({station_metrics.records_per_second:.0f} records/sec)"
+                )
+
+            # Bulk create daily records
+            if all_daily_records:
+                self.stdout.write(
+                    f"\n🏗️  Creating {len(all_daily_records):,} daily weather records..."
+                )
+                daily_metrics = await bulk_writer.bulk_create_daily_weather_async(
+                    all_daily_records,
+                    self.progress_callback if self.verbosity >= 1 else None,
+                )
+                self.stdout.write(
+                    f"   ✅ Created {daily_metrics.successful_records:,} daily records "
+                    f"in {daily_metrics.duration:.2f}s "
+                    f"({daily_metrics.records_per_second:.0f} records/sec)"
+                )
 
         # Summary
         self.stdout.write(
@@ -120,6 +187,11 @@ class Command(BaseCommand):
             self.stdout.write("\n📋 Database verification:")
             self.stdout.write(f"   • Weather stations in DB: {db_stations:,}")
             self.stdout.write(f"   • Daily weather records in DB: {db_records:,}")
+
+    def progress_callback(self, current: int, total: int):
+        """Progress callback for bulk operations."""
+        percentage = (current / total * 100) if total > 0 else 0
+        self.stdout.write(f"   📈 Progress: {current:,}/{total:,} ({percentage:.1f}%)")
 
     def clear_existing_data(self):
         """Clear existing weather data from the database."""
@@ -147,22 +219,20 @@ class Command(BaseCommand):
         station_id = filename.replace(".txt", "")
         return station_id
 
-    def process_weather_file(self, file_path: str, station_id: str) -> int:
-        """Process a single weather data file."""
-        # Create or get weather station
-        if not self.dry_run:
-            station, created = WeatherStation.objects.get_or_create(
+    async def parse_weather_file_async(self, file_path: str, station_id: str):
+        """Parse a single weather data file asynchronously."""
+        # Create weather station
+        station = (
+            WeatherStation(
                 station_id=station_id,
-                defaults={
-                    "name": f"Weather Station {station_id}",
-                },
+                name=f"Weather Station {station_id}",
             )
-        else:
-            station = None
+            if not self.dry_run
+            else None
+        )
 
         # Parse daily weather records
         daily_records = []
-        processed_count = 0
 
         with open(file_path, encoding="utf-8") as f:
             for line_num, line in enumerate(f, 1):
@@ -188,13 +258,6 @@ class Command(BaseCommand):
                         )
                         daily_records.append(daily_record)
 
-                    processed_count += 1
-
-                    # Process in batches
-                    if not self.dry_run and len(daily_records) >= self.batch_size:
-                        self.save_daily_records_batch(daily_records)
-                        daily_records = []
-
                 except Exception as e:
                     if self.verbosity >= 2:
                         self.stdout.write(
@@ -204,11 +267,7 @@ class Command(BaseCommand):
                         )
                     continue
 
-        # Save remaining records
-        if not self.dry_run and daily_records:
-            self.save_daily_records_batch(daily_records)
-
-        return processed_count
+        return station, daily_records
 
     def parse_weather_line(
         self, line: str
@@ -246,16 +305,3 @@ class Command(BaseCommand):
             return None if value == -9999 else value
         except ValueError:
             return None
-
-    def save_daily_records_batch(self, daily_records: list[DailyWeather]):
-        """Save a batch of daily weather records to the database."""
-        try:
-            with transaction.atomic():
-                DailyWeather.objects.bulk_create(
-                    daily_records,
-                    ignore_conflicts=True,  # Skip duplicates
-                    batch_size=self.batch_size,
-                )
-        except Exception as e:
-            self.stdout.write(self.style.ERROR(f"   ❌ Error saving batch: {e}"))
-            raise
