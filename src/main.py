@@ -35,6 +35,7 @@ except ImproperlyConfigured as e:
 from src.config import settings  # noqa: E402
 from src.routers import (  # noqa: E402
     crops,
+    docs,
     filtered_endpoints,
     health,
     simple_weather,
@@ -73,28 +74,30 @@ async def lifespan(app: FastAPI):
     logging.info("Shutting down Weather Data Engineering API...")
 
 
-# FastAPI application instance
+# Import documentation configuration
+from src.docs.openapi_config import get_openapi_config, get_openapi_tags  # noqa: E402
+from src.docs.swagger_ui import create_custom_openapi_schema  # noqa: E402
+
+# Get enhanced OpenAPI configuration
+openapi_config = get_openapi_config()
+
+# FastAPI application instance with enhanced documentation
 app = FastAPI(
-    title="Weather Data Engineering API",
-    description="""
-    A comprehensive API for weather data management and analysis.
-
-    This API provides endpoints for:
-    - Weather station management
-    - Daily weather observations
-    - Yearly weather statistics
-    - Crop yield data
-    - Data ingestion and processing
-    - Analytics and reporting
-
-    Built with FastAPI and Django ORM integration.
-    """,
-    version="1.0.0",
+    title=openapi_config["title"],
+    description=openapi_config["description"],
+    version=openapi_config["version"],
+    contact=openapi_config.get("contact"),
+    license_info=openapi_config.get("license"),
+    servers=openapi_config.get("servers", []),
+    tags_metadata=get_openapi_tags(),
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
     lifespan=lifespan,
 )
+
+# Apply custom OpenAPI schema with enhanced documentation
+create_custom_openapi_schema(app)
 
 # CORS middleware configuration
 app.add_middleware(
@@ -196,26 +199,67 @@ app.include_router(
     tags=["Enhanced API with Filtering & Pagination"],
 )
 
+app.include_router(
+    docs.router,
+    prefix="/docs/api",
+    tags=["Documentation & API Information"],
+)
+
 
 # Root endpoint
 @app.get("/", response_model=dict[str, Any])
 async def root():
     """
-    Root endpoint providing API information.
+    Root endpoint providing comprehensive API information.
+
+    Returns information about the Weather Data Engineering API including:
+    - Basic API metadata
+    - Documentation URLs
+    - Available endpoints
+    - Enhanced documentation features
     """
     return {
         "message": "Weather Data Engineering API",
-        "version": "1.0.0",
-        "docs_url": "/docs",
-        "redoc_url": "/redoc",
-        "health_check": "/health",
+        "version": openapi_config["version"],
+        "description": "A comprehensive data engineering solution for weather data management and analysis",
+        "documentation": {
+            "swagger_ui": "/docs",
+            "redoc": "/redoc",
+            "openapi_schema": "/openapi.json",
+            "custom_swagger": "/docs/api/custom-swagger",
+            "custom_redoc": "/docs/api/custom-redoc",
+            "api_info": "/docs/api",
+            "examples": "/docs/api/examples",
+            "integration_guides": "/docs/api/integration-guides",
+            "endpoints_info": "/docs/api/endpoints",
+            "documentation_status": "/docs/api/status",
+        },
         "endpoints": {
-            "weather": "/api/v1/weather",
+            "weather_v1": "/api/v1/weather",
             "simple_weather": "/api/weather",
-            "enhanced_api": "/api/v2",
+            "enhanced_api_v2": "/api/v2",
             "crops": "/api/v1/crops",
             "stats": "/api/v1/stats",
+            "health": "/health",
+            "system_info": "/info",
         },
+        "features": {
+            "filtering": "Advanced filtering capabilities",
+            "pagination": "Page-based and cursor-based pagination",
+            "sorting": "Multi-field sorting with validation",
+            "search": "Full-text search capabilities",
+            "documentation": "Enhanced interactive documentation",
+            "examples": "Comprehensive API examples",
+            "integration_guides": "Multi-language integration guides",
+        },
+        "data_coverage": {
+            "time_period": "1985-2014 (30 years)",
+            "geographic_coverage": "Nebraska, Iowa, Illinois, Indiana, Ohio",
+            "weather_stations": "200+ stations",
+            "data_points": "Temperature, precipitation, weather station metadata",
+        },
+        "contact": openapi_config.get("contact"),
+        "license": openapi_config.get("license"),
         "timestamp": datetime.now().isoformat(),
     }
 

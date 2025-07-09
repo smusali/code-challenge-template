@@ -8,6 +8,6 @@ This package contains all FastAPI router modules for different API endpoints:
 - stats: Statistics and analytics endpoints
 """
 
-from . import crops, health, stats, weather
+from . import crops, docs, health, stats, weather
 
-__all__ = ["health", "weather", "crops", "stats"]
+__all__ = ["health", "weather", "crops", "stats", "docs"]
