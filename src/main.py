@@ -33,7 +33,14 @@ except ImproperlyConfigured as e:
     sys.exit(1)
 
 from src.config import settings  # noqa: E402
-from src.routers import crops, health, simple_weather, stats, weather  # noqa: E402
+from src.routers import (  # noqa: E402
+    crops,
+    filtered_endpoints,
+    health,
+    simple_weather,
+    stats,
+    weather,
+)
 
 
 @asynccontextmanager
@@ -183,6 +190,12 @@ app.include_router(
     tags=["Simple Weather API"],
 )
 
+app.include_router(
+    filtered_endpoints.router,
+    prefix="/api/v2",
+    tags=["Enhanced API with Filtering & Pagination"],
+)
+
 
 # Root endpoint
 @app.get("/", response_model=dict[str, Any])
@@ -199,6 +212,7 @@ async def root():
         "endpoints": {
             "weather": "/api/v1/weather",
             "simple_weather": "/api/weather",
+            "enhanced_api": "/api/v2",
             "crops": "/api/v1/crops",
             "stats": "/api/v1/stats",
         },
