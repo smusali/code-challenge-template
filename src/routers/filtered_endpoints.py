@@ -6,7 +6,7 @@ of existing endpoints with comprehensive filtering, sorting, and pagination.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -32,6 +32,8 @@ from src.utils.filtering import (
     StateFilter,
     TextSearchFilter,
     apply_filters,
+    parse_date_safely,
+    validate_date_range_consistency,
     validate_filter_compatibility,
 )
 from src.utils.pagination import PaginatedResponse, PaginationParams, paginate_queryset
@@ -77,9 +79,14 @@ async def list_weather_stations_filtered(
             state_filter = StateFilter(states=query_params.states)
             queryset = state_filter.apply_to_queryset(queryset, "state")
 
-        # Apply recent data filter
+        # Apply recent data filter with proper timezone handling
         if query_params.has_recent_data is not None:
-            recent_cutoff = datetime.now().date() - timedelta(days=30)
+            from django.utils import timezone
+
+            # Use timezone-aware current date to avoid timezone issues
+            current_date = timezone.now().date()
+            recent_cutoff = current_date - timedelta(days=30)
+
             if query_params.has_recent_data:
                 queryset = queryset.filter(
                     daily_records__date__gte=recent_cutoff
@@ -146,41 +153,129 @@ async def list_daily_weather_filtered(
         # Build comprehensive filters
         filters = FilterParams()
 
-        # Date filtering
+        # Date filtering with improved error handling
         if query_params.start_date or query_params.end_date:
-            from datetime import datetime as dt
+            try:
+                start_date = (
+                    parse_date_safely(query_params.start_date, "start_date")
+                    if query_params.start_date
+                    else None
+                )
+                end_date = (
+                    parse_date_safely(query_params.end_date, "end_date")
+                    if query_params.end_date
+                    else None
+                )
 
-            start_date = (
-                dt.strptime(query_params.start_date, "%Y-%m-%d").date()
-                if query_params.start_date
-                else None
-            )
-            end_date = (
-                dt.strptime(query_params.end_date, "%Y-%m-%d").date()
-                if query_params.end_date
-                else None
-            )
-            filters.date_range = DateRangeFilter(
-                start_date=start_date, end_date=end_date
-            )
+                # Validate date range consistency with year/month filters
+                validate_date_range_consistency(
+                    start_date, end_date, query_params.year, query_params.month
+                )
 
-        # Year and month filtering
-        if query_params.year:
-            filters.year = query_params.year
-        if query_params.month:
-            filters.month = query_params.month
+                filters.date_range = DateRangeFilter(
+                    start_date=start_date, end_date=end_date
+                )
 
-        # Temperature filtering
+            except HTTPException:
+                # Re-raise HTTP exceptions as-is
+                raise
+            except Exception as e:
+                logger.error(f"Unexpected error in date filtering: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Error processing date filters: {str(e)}",
+                )
+
+        # Year and month filtering with validation
+        if query_params.year or query_params.month:
+            # Validate consistency with date range filters (already done above if date range exists)
+            if not (query_params.start_date or query_params.end_date):
+                validate_date_range_consistency(
+                    None, None, query_params.year, query_params.month
+                )
+
+            if query_params.year:
+                filters.year = query_params.year
+            if query_params.month:
+                filters.month = query_params.month
+
+        # Temperature filtering with validation
         if query_params.min_temp is not None or query_params.max_temp is not None:
+            # Validate temperature ranges (reasonable for Earth's climate)
+            if query_params.min_temp is not None and (
+                query_params.min_temp < -100 or query_params.min_temp > 70
+            ):
+                logger.warning(
+                    f"Extreme minimum temperature value: {query_params.min_temp}°C"
+                )
+                # Don't raise error but log for monitoring - could be valid research data
+
+            if query_params.max_temp is not None and (
+                query_params.max_temp < -100 or query_params.max_temp > 70
+            ):
+                logger.warning(
+                    f"Extreme maximum temperature value: {query_params.max_temp}°C"
+                )
+
+            # Validate min <= max
+            if (
+                query_params.min_temp is not None
+                and query_params.max_temp is not None
+                and query_params.min_temp > query_params.max_temp
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Minimum temperature ({query_params.min_temp}°C) cannot be greater than maximum temperature ({query_params.max_temp}°C)",
+                )
+
             filters.temperature_range = NumericRangeFilter(
                 min_value=query_params.min_temp, max_value=query_params.max_temp
             )
 
-        # Precipitation filtering
+        # Precipitation filtering with validation
         if (
             query_params.min_precipitation is not None
             or query_params.max_precipitation is not None
         ):
+            # Validate precipitation ranges (must be non-negative)
+            if (
+                query_params.min_precipitation is not None
+                and query_params.min_precipitation < 0
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Minimum precipitation cannot be negative: {query_params.min_precipitation}mm",
+                )
+
+            if (
+                query_params.max_precipitation is not None
+                and query_params.max_precipitation < 0
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Maximum precipitation cannot be negative: {query_params.max_precipitation}mm",
+                )
+
+            # Validate min <= max
+            if (
+                query_params.min_precipitation is not None
+                and query_params.max_precipitation is not None
+                and query_params.min_precipitation > query_params.max_precipitation
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Minimum precipitation ({query_params.min_precipitation}mm) cannot be greater than maximum precipitation ({query_params.max_precipitation}mm)",
+                )
+
+            # Log extreme values for monitoring
+            if (
+                query_params.max_precipitation is not None
+                and query_params.max_precipitation > 1000
+            ):
+                logger.warning(
+                    f"Very high precipitation value: {query_params.max_precipitation}mm"
+                )
+
             filters.precipitation_range = NumericRangeFilter(
                 min_value=query_params.min_precipitation,
                 max_value=query_params.max_precipitation,
@@ -275,13 +370,62 @@ async def list_yearly_stats_filtered(
         # Start with base queryset
         queryset = YearlyWeatherStats.objects.select_related("station").all()
 
-        # Year filtering
-        if query_params.start_year:
-            queryset = queryset.filter(year__gte=query_params.start_year)
-        if query_params.end_year:
-            queryset = queryset.filter(year__lte=query_params.end_year)
-        if query_params.years:
-            queryset = queryset.filter(year__in=query_params.years)
+        # Year filtering with validation
+        if query_params.start_year or query_params.end_year or query_params.years:
+            # Validate year ranges
+            if query_params.start_year and (
+                query_params.start_year < 1800 or query_params.start_year > 2100
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid start_year: {query_params.start_year}. Year must be between 1800 and 2100",
+                )
+
+            if query_params.end_year and (
+                query_params.end_year < 1800 or query_params.end_year > 2100
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid end_year: {query_params.end_year}. Year must be between 1800 and 2100",
+                )
+
+            # Validate start_year <= end_year
+            if (
+                query_params.start_year
+                and query_params.end_year
+                and query_params.start_year > query_params.end_year
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Start year ({query_params.start_year}) cannot be greater than end year ({query_params.end_year})",
+                )
+
+            # Validate specific years
+            if query_params.years:
+                invalid_years = [
+                    year for year in query_params.years if year < 1800 or year > 2100
+                ]
+                if invalid_years:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Invalid years: {invalid_years}. All years must be between 1800 and 2100",
+                    )
+
+                # Check for conflicting year filters
+                if query_params.start_year or query_params.end_year:
+                    logger.warning("Both year range and specific years provided")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Cannot use both year range (start_year/end_year) and specific years filters simultaneously",
+                    )
+
+            # Apply the filters
+            if query_params.start_year:
+                queryset = queryset.filter(year__gte=query_params.start_year)
+            if query_params.end_year:
+                queryset = queryset.filter(year__lte=query_params.end_year)
+            if query_params.years:
+                queryset = queryset.filter(year__in=query_params.years)
 
         # Temperature filtering
         if query_params.min_avg_temp is not None:

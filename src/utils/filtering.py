@@ -9,18 +9,133 @@ This module provides reusable filtering functionality including:
 """
 
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from django.db.models import Q, QuerySet
-from fastapi import Query
+from fastapi import HTTPException, Query, status
 from pydantic import BaseModel, Field, validator
 
 logger = logging.getLogger(__name__)
 
 
+def parse_date_safely(date_string: str, field_name: str = "date") -> date:
+    """
+    Safely parse a date string with comprehensive error handling.
+
+    Args:
+        date_string: Date string in YYYY-MM-DD format
+        field_name: Name of the field being parsed (for error messages)
+
+    Returns:
+        Parsed date object
+
+    Raises:
+        HTTPException: If date format is invalid or date doesn't exist
+    """
+    if not date_string:
+        return None
+
+    try:
+        # First try basic parsing
+        parsed_date = datetime.strptime(date_string.strip(), "%Y-%m-%d").date()
+
+        # Validate that the date actually exists (handles leap years, invalid days)
+        # This will catch cases like 2023-02-29, 2023-13-01, 2023-11-31, etc.
+        datetime.strptime(
+            f"{parsed_date.year:04d}-{parsed_date.month:02d}-{parsed_date.day:02d}",
+            "%Y-%m-%d",
+        )
+
+        # Additional validation for reasonable date ranges
+        if parsed_date.year < 1800 or parsed_date.year > 2100:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid {field_name}: Year must be between 1800 and 2100, got {parsed_date.year}",
+            )
+
+        return parsed_date
+
+    except ValueError as e:
+        # Handle various date parsing errors
+        if "does not match format" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid {field_name} format: Expected YYYY-MM-DD, got '{date_string}'",
+            )
+        elif "day is out of range for month" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid {field_name}: Day does not exist in the specified month: '{date_string}'",
+            )
+        elif "month must be in 1..12" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid {field_name}: Month must be between 1 and 12: '{date_string}'",
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid {field_name}: '{date_string}' - {str(e)}",
+            )
+    except Exception as e:
+        logger.error(f"Unexpected error parsing date '{date_string}': {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid {field_name}: Unable to parse '{date_string}'",
+        )
+
+
+def validate_date_range_consistency(
+    start_date: date | None, end_date: date | None, year: int | None, month: int | None
+) -> None:
+    """
+    Validate consistency between date range filters and year/month filters.
+
+    Args:
+        start_date: Start date from date range filter
+        end_date: End date from date range filter
+        year: Year filter value
+        month: Month filter value
+
+    Raises:
+        HTTPException: If conflicting filters are detected
+    """
+    # Check for conflicts between date range and year/month filters
+    if (start_date or end_date) and (year or month):
+        logger.warning(
+            "Conflicting date filters detected: date range and year/month filters"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot use both date range filters (start_date/end_date) and year/month filters simultaneously. Please use one approach.",
+        )
+
+    # Validate year and month combination
+    if month and not year:
+        logger.warning("Month filter provided without year")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="When filtering by month, you must also specify a year",
+        )
+
+    # Validate month range
+    if month and (month < 1 or month > 12):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid month: {month}. Month must be between 1 and 12",
+        )
+
+    # Validate year range
+    if year and (year < 1800 or year > 2100):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid year: {year}. Year must be between 1800 and 2100",
+        )
+
+
 class DateRangeFilter(BaseModel):
-    """Date range filter parameters."""
+    """Date range filter parameters with enhanced validation."""
 
     start_date: date | None = Field(
         None, description="Start date (inclusive)", example="2020-01-01"
@@ -32,8 +147,38 @@ class DateRangeFilter(BaseModel):
     @validator("end_date")
     def validate_date_range(cls, v, values):
         """Validate that end_date is after start_date."""
-        if v and values.get("start_date") and v < values["start_date"]:
-            raise ValueError("End date must be after start date")
+        if v and values.get("start_date"):
+            start_date = values["start_date"]
+            if v < start_date:
+                raise ValueError(
+                    f"End date ({v}) must be after start date ({start_date})"
+                )
+
+            # Check for excessively large date ranges (> 50 years)
+            date_diff = v - start_date
+            if date_diff.days > 365 * 50:
+                logger.warning(
+                    f"Very large date range requested: {date_diff.days} days"
+                )
+                # Don't raise error but log for monitoring
+
+        return v
+
+    @validator("start_date", "end_date", pre=True)
+    def validate_date_values(cls, v):
+        """Validate individual date values."""
+        if v is None:
+            return v
+
+        # If it's already a date object, validate range
+        if isinstance(v, date):
+            if v.year < 1800 or v.year > 2100:
+                raise ValueError(
+                    f"Date year must be between 1800 and 2100, got {v.year}"
+                )
+            return v
+
+        # If it's a string, it should be handled by the calling code with parse_date_safely
         return v
 
     def apply_to_queryset(
