@@ -902,19 +902,67 @@ See `infrastructure/` directory for Terraform configurations.
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Commit changes: `git commit -m 'feat: add amazing feature'`
-4. Push to branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
+We welcome contributions to the Weather Data Engineering API! Please read our comprehensive contribution guidelines before getting started.
 
-### Code Quality Standards
+### 📚 Documentation
 
-- Follow PEP 8 style guidelines
-- Add type hints to all functions
-- Include docstrings for public APIs
-- Maintain test coverage >90%
-- Use conventional commit messages
+- **[Contributing Guide](CONTRIBUTING.md)** - Comprehensive guide for contributors
+- **[Code Owners](.github/CODEOWNERS)** - Code ownership and review requirements
+- **[Issue Templates](.github/ISSUE_TEMPLATE/)** - Templates for bug reports and feature requests
+
+### 🚀 Quick Start for Contributors
+
+1. **Read the [Contributing Guide](CONTRIBUTING.md)** for detailed setup instructions
+2. **Fork the repository** on GitHub
+3. **Clone your fork** and set up the development environment
+4. **Create a feature branch**: `git checkout -b feature/amazing-feature`
+5. **Make your changes** following our code standards
+6. **Add tests** for new functionality
+7. **Run the test suite**: `python run_tests.py`
+8. **Commit changes**: `git commit -m 'feat: add amazing feature'`
+9. **Push to your fork**: `git push origin feature/amazing-feature`
+10. **Open a Pull Request** with a clear description
+
+### 🔍 Code Review Process
+
+- **Automated checks** must pass (CI/CD, tests, linting)
+- **Code owner review** required (see [CODEOWNERS](.github/CODEOWNERS))
+- **All conversations** must be resolved before merge
+- **Squash and merge** preferred for clean history
+
+### 📏 Code Quality Standards
+
+Our project maintains high code quality through:
+
+- **PEP 8** style guidelines with Black formatter
+- **Type hints** required for all functions
+- **Comprehensive docstrings** for public APIs
+- **90%+ test coverage** requirement
+- **Conventional commit messages** for clear history
+- **Pre-commit hooks** for automated quality checks
+
+### 🛡️ Security
+
+For security vulnerabilities, please **do not** create public GitHub issues. Instead:
+- Email security concerns to [security@example.com](mailto:security@example.com)
+- Include detailed description and steps to reproduce
+- Wait for response before public disclosure
+
+### 🎯 Good First Issues
+
+New contributors should look for issues labeled:
+- `good first issue` - Perfect for newcomers
+- `help wanted` - Community help appreciated
+- `documentation` - Documentation improvements
+- `tests` - Test coverage improvements
+
+### 📊 Development Metrics
+
+We track these metrics for project health:
+- **Code Coverage**: Target >90%
+- **Test Success Rate**: Target >99%
+- **Performance**: API response time <500ms (p95)
+- **Security**: Zero critical vulnerabilities
 
 ## 📄 License
 
@@ -926,6 +974,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Built for the Corteva Data Engineering Challenge
 - Inspired by modern data engineering best practices
 
+## 👥 Contributors
+
+Special thanks to all contributors who help make this project better. See the [Contributing Guide](CONTRIBUTING.md) to join them!
+
+<!-- Contributors section will be automatically updated -->
+
 ---
 
 **Note**: This is a demonstration project showcasing data engineering capabilities including ETL pipelines, API development, and cloud architecture design.
+
+**Contributing**: We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.

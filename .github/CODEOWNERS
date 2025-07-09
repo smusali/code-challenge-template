@@ -1,0 +1,201 @@
+# Code Owners for Weather Data Engineering API
+#
+# This file defines who owns and reviews code in different parts of the repository.
+# When a pull request is created, GitHub will automatically request reviews from
+# the appropriate code owners based on the files changed.
+#
+# More info: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# =============================================================================
+# Global Ownership
+# =============================================================================
+
+# Default owners for everything in the repository
+# These individuals will be requested for review unless a more specific rule matches
+* @smusali
+
+# =============================================================================
+# Documentation
+# =============================================================================
+
+# Documentation files
+*.md @smusali
+docs/ @smusali
+README.md @smusali
+CHANGELOG.md @smusali
+CONTRIBUTING.md @smusali
+
+# API documentation
+src/docs/ @smusali
+src/models/ @smusali
+
+# =============================================================================
+# Infrastructure & DevOps
+# =============================================================================
+
+# Docker and containerization
+docker/ @smusali
+Dockerfile* @smusali
+docker-compose*.yml @smusali
+.dockerignore @smusali
+
+# CI/CD and GitHub Actions
+.github/ @smusali
+.github/workflows/ @smusali
+
+# Terraform infrastructure
+terraform/ @smusali
+*.tf @smusali
+*.tfvars @smusali
+
+# Deployment and scripts
+scripts/ @smusali
+*.sh @smusali
+
+# =============================================================================
+# Core Application Code
+# =============================================================================
+
+# FastAPI application core
+src/ @smusali
+src/main.py @smusali
+src/config.py @smusali
+
+# API routes and endpoints
+src/routers/ @smusali
+
+# Database models and Django integration
+core_django/ @smusali
+core_django/models/ @smusali
+core_django/core/ @smusali
+
+# Data processing and utilities
+src/utils/ @smusali
+core_django/utils/ @smusali
+
+# Middleware and authentication
+src/middleware/ @smusali
+
+# =============================================================================
+# Data & Analytics
+# =============================================================================
+
+# Data ingestion and processing
+core_django/models/management/ @smusali
+scripts/ingest_weather_data.py @smusali
+
+# Data files and datasets
+wx_data/ @smusali
+yld_data/ @smusali
+
+# =============================================================================
+# Testing & Quality Assurance
+# =============================================================================
+
+# Test files and configuration
+tests/ @smusali
+*test*.py @smusali
+pytest.ini @smusali
+.coveragerc @smusali
+
+# Code quality and linting
+.pre-commit-config.yaml @smusali
+pyproject.toml @smusali
+ruff.toml @smusali
+
+# =============================================================================
+# Dependencies & Configuration
+# =============================================================================
+
+# Python dependencies
+requirements*.txt @smusali
+pyproject.toml @smusali
+setup.py @smusali
+
+# Environment and configuration
+.env* @smusali
+.gitignore @smusali
+
+# =============================================================================
+# Security & Compliance
+# =============================================================================
+
+# Security-related files
+.github/workflows/security.yml @smusali
+bandit.yaml @smusali
+
+# License and legal
+LICENSE @smusali
+
+# =============================================================================
+# Special Rules for Critical Files
+# =============================================================================
+
+# Critical configuration files require additional review
+src/config.py @smusali
+core_django/core/settings.py @smusali
+docker/Dockerfile.api @smusali
+
+# Database migrations require careful review
+core_django/models/migrations/ @smusali
+
+# Production deployment workflows
+.github/workflows/deploy.yml @smusali
+.github/workflows/release-containers.yml @smusali
+
+# =============================================================================
+# Area-Specific Ownership
+# =============================================================================
+
+# API Development
+src/routers/ @smusali
+src/models/ @smusali
+
+# Data Engineering
+core_django/models/management/commands/ @smusali
+src/utils/filtering.py @smusali
+src/utils/pagination.py @smusali
+
+# DevOps & Infrastructure
+docker/ @smusali
+terraform/ @smusali
+.github/workflows/ @smusali
+
+# =============================================================================
+# Sensitive Files Requiring Multiple Reviews
+# =============================================================================
+
+# These files are critical and should have additional oversight
+# Uncomment and modify when you have team members
+
+# core_django/core/settings.py @smusali @teammate1
+# .github/workflows/deploy.yml @smusali @devops-team
+# terraform/main.tf @smusali @infrastructure-team
+
+# =============================================================================
+# Notes for Future Team Growth
+# =============================================================================
+
+# When adding team members, consider these ownership patterns:
+#
+# Frontend Team:
+# src/templates/ @frontend-team
+# static/ @frontend-team
+#
+# Backend Team:
+# src/routers/ @backend-team
+# core_django/ @backend-team
+#
+# Data Team:
+# wx_data/ @data-team
+# yld_data/ @data-team
+# core_django/models/management/ @data-team
+#
+# DevOps Team:
+# docker/ @devops-team
+# terraform/ @devops-team
+# .github/workflows/ @devops-team
+#
+# QA Team:
+# tests/ @qa-team
+# .github/workflows/test.yml @qa-team
