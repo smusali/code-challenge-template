@@ -101,12 +101,6 @@ CMD ["gunicorn", "src.main:app", \
 # Ingestion stage (for data ingestion tasks)
 FROM base as ingestion
 
-# Install additional dependencies for data processing
-RUN pip install --no-cache-dir \
-    pandas \
-    numpy \
-    scipy
-
 # Copy application code
 COPY --chown=appuser:appuser . .
 
@@ -123,8 +117,7 @@ FROM development as testing
 RUN pip install --no-cache-dir \
     pytest-django \
     pytest-mock \
-    coverage \
-    factory-boy
+    coverage
 
 # Copy test configuration
 COPY pytest.ini .

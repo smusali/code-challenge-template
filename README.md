@@ -815,9 +815,13 @@ weather-data-engineering-api/
 │   ├── core/             # Django settings and config
 │   ├── models/           # Data models
 │   ├── manage.py         # Django management
-│   └── setup.py          # FastAPI integration
-├── weather_api/          # FastAPI application (future)
-├── scripts/              # Data processing scripts (future)
+│   └── utils/            # Django utilities
+├── src/                  # FastAPI application
+│   ├── routers/          # API route handlers  
+│   ├── models/           # Pydantic models
+│   ├── utils/            # API utilities
+│   └── middleware/       # Custom middleware
+├── scripts/              # Data processing scripts
 ├── tests/                # Test suites
 ├── docker/               # Container definitions
 ├── wx_data/              # Weather station files

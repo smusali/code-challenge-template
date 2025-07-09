@@ -67,11 +67,10 @@ docker-compose*.yml
 # Allow analytics scripts
 !docker/analytics-scripts/
 
-# Documentation
-README.md
+# Documentation (but keep README for container metadata)
 docs/
 
-# Tests
+# Tests (exclude for production builds)
 tests/
 .pytest_cache/
 htmlcov/

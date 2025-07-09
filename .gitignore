@@ -86,6 +86,14 @@ venv.bak/
 .dmypy.json
 dmypy.json
 
+# Ruff
+.ruff_cache/
+
+# Modern Python tools
+.pdm-python
+.pdm-build/
+.rye/
+
 # IDEs
 .idea/
 .vscode/
@@ -105,6 +113,20 @@ Thumbs.db
 logs/
 data/export/
 *.pid
+
+# Test and coverage reports
+test-results/
+.coverage.*
+htmlcov/
+pytest_cache/
+.tox/
+
+# Performance and profiling
+*.prof
+.benchmarks/
+
+# Jupyter Notebook
+.ipynb_checkpoints
 
 # Docker
 docker-compose.override.yml
