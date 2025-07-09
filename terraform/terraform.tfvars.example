@@ -1,0 +1,31 @@
+# AWS Configuration
+aws_region = "us-west-2"
+
+# Project Configuration
+project_name = "weather-api"
+environment  = "dev"
+
+# Network Configuration
+vpc_cidr           = "10.0.0.0/16"
+availability_zones = ["us-west-2a", "us-west-2b", "us-west-2c"]
+
+# Database Configuration
+db_name           = "weather_db"
+db_username       = "weather_user"
+db_password       = "your-secure-password-here"  # pragma: allowlist secret
+db_instance_class = "db.t3.micro"
+
+# ECS Configuration
+container_image   = "your-account.dkr.ecr.us-west-2.amazonaws.com/weather-api:latest"
+container_port    = 8000
+ecs_cpu           = 256
+ecs_memory        = 512
+ecs_desired_count = 2
+
+# SSL Configuration (optional)
+ssl_certificate_arn = ""
+domain_name         = ""
+
+# Monitoring Configuration
+enable_monitoring    = true
+log_retention_days   = 30
