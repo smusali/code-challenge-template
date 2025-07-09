@@ -1,0 +1,496 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: "0 10 * * 1" # Run every Monday at 10 AM UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  code-analysis:
+    name: Code Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install analysis tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install \
+            flake8 \
+            mypy \
+            pylint \
+            radon \
+            vulture \
+            pydocstyle \
+            complexity \
+            mccabe \
+            bandit \
+            safety
+
+      - name: Run flake8 linting
+        run: |
+          flake8 src/ core_django/ --format=json --output-file=flake8-report.json || true
+          flake8 src/ core_django/ --format=html --htmldir=flake8-html-report || true
+
+      - name: Run mypy type checking
+        run: |
+          mypy src/ --html-report mypy-html-report --json-report mypy-json-report || true
+
+      - name: Run pylint analysis
+        run: |
+          pylint src/ core_django/ --output-format=json:pylint-report.json,html:pylint-report.html || true
+
+      - name: Calculate code complexity
+        run: |
+          radon cc src/ core_django/ --json --output-file=complexity-report.json
+          radon mi src/ core_django/ --json --output-file=maintainability-report.json
+          radon raw src/ core_django/ --json --output-file=raw-metrics.json
+
+      - name: Find dead code
+        run: |
+          vulture src/ core_django/ --json > dead-code-report.json || true
+
+      - name: Check docstring compliance
+        run: |
+          pydocstyle src/ core_django/ --format=json > docstring-report.json || true
+
+      - name: Generate code quality summary
+        run: |
+          python -c "
+          import json
+          import os
+
+          def safe_load_json(filename):
+              try:
+                  with open(filename, 'r') as f:
+                      return json.load(f)
+              except (FileNotFoundError, json.JSONDecodeError):
+                  return {}
+
+          # Load reports
+          flake8_data = safe_load_json('flake8-report.json')
+          complexity_data = safe_load_json('complexity-report.json')
+          maintainability_data = safe_load_json('maintainability-report.json')
+
+          print('## Code Quality Report')
+          print()
+
+          # Flake8 issues
+          if flake8_data:
+              print(f'### Linting Issues')
+              print(f'Total Issues: {len(flake8_data)}')
+              if flake8_data:
+                  error_types = {}
+                  for issue in flake8_data:
+                      error_code = issue.get('code', 'Unknown')
+                      error_types[error_code] = error_types.get(error_code, 0) + 1
+
+                  print('| Error Code | Count |')
+                  print('|------------|-------|')
+                  for code, count in sorted(error_types.items()):
+                      print(f'| {code} | {count} |')
+              print()
+
+          # Complexity metrics
+          if complexity_data:
+              print('### Complexity Metrics')
+              high_complexity = []
+              for module, functions in complexity_data.items():
+                  for func in functions:
+                      if func.get('complexity', 0) > 10:
+                          high_complexity.append((module, func.get('name', ''), func.get('complexity', 0)))
+
+              if high_complexity:
+                  print('Functions with high complexity (>10):')
+                  print('| Module | Function | Complexity |')
+                  print('|--------|----------|------------|')
+                  for module, func, complexity in high_complexity[:10]:
+                      print(f'| {module} | {func} | {complexity} |')
+              else:
+                  print('✅ No functions with high complexity detected')
+              print()
+
+          # Maintainability
+          if maintainability_data:
+              print('### Maintainability Index')
+              low_maintainability = []
+              for module, mi_score in maintainability_data.items():
+                  if mi_score < 20:
+                      low_maintainability.append((module, mi_score))
+
+              if low_maintainability:
+                  print('Modules with low maintainability (<20):')
+                  print('| Module | MI Score |')
+                  print('|--------|----------|')
+                  for module, score in low_maintainability:
+                      print(f'| {module} | {score:.1f} |')
+              else:
+                  print('✅ All modules have good maintainability scores')
+              print()
+
+          print('### Quality Gates')
+          # Define quality gates
+          gates_passed = 0
+          total_gates = 3
+
+          if len(flake8_data) < 50:
+              print('✅ Linting: <50 issues')
+              gates_passed += 1
+          else:
+              print('❌ Linting: Too many issues')
+
+          if len(high_complexity) < 5:
+              print('✅ Complexity: <5 high complexity functions')
+              gates_passed += 1
+          else:
+              print('❌ Complexity: Too many complex functions')
+
+          if len(low_maintainability) == 0:
+              print('✅ Maintainability: All modules above threshold')
+              gates_passed += 1
+          else:
+              print('❌ Maintainability: Some modules below threshold')
+
+          print(f'\\nOverall: {gates_passed}/{total_gates} quality gates passed')
+
+          # Exit with error if quality gates fail
+          if gates_passed < total_gates:
+              exit(1)
+          " > code-quality-summary.md
+
+      - name: Upload code quality reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: code-quality-reports
+          path: |
+            *-report.json
+            *-report.html
+            *-html-report/
+            code-quality-summary.md
+
+      - name: Comment PR with quality results
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+
+            try {
+              const summary = fs.readFileSync('code-quality-summary.md', 'utf8');
+
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: summary
+              });
+            } catch (error) {
+              console.log('Could not post code quality results:', error.message);
+            }
+
+  documentation-check:
+    name: Documentation Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install documentation tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install sphinx sphinx-rtd-theme pydocstyle interrogate
+
+      - name: Check docstring coverage
+        run: |
+          interrogate src/ core_django/ --generate-badge interrogate-badge.svg --quiet-level 2 || true
+          interrogate src/ core_django/ --verbose > docstring-coverage.txt
+
+      - name: Validate API documentation
+        run: |
+          # Check if documentation endpoints work
+          cd core_django
+          python -c "
+          import django
+          django.setup()
+          from src.main import app
+
+          # Check OpenAPI schema
+          schema = app.openapi()
+
+          required_fields = ['openapi', 'info', 'paths']
+          for field in required_fields:
+              assert field in schema, f'Missing {field} in OpenAPI schema'
+
+          # Check for documentation completeness
+          paths = schema['paths']
+          documented_endpoints = len(paths)
+
+          print(f'OpenAPI Schema Validation:')
+          print(f'- Documented endpoints: {documented_endpoints}')
+          print(f'- API title: {schema[\"info\"][\"title\"]}')
+          print(f'- API version: {schema[\"info\"][\"version\"]}')
+
+          if documented_endpoints < 20:
+              print('⚠️ Warning: Low number of documented endpoints')
+          else:
+              print('✅ Good API documentation coverage')
+          "
+
+      - name: Check README quality
+        run: |
+          python -c "
+          import os
+
+          readme_files = ['README.md', 'README.rst', 'README.txt']
+          readme_found = False
+
+          for readme in readme_files:
+              if os.path.exists(readme):
+                  with open(readme, 'r') as f:
+                      content = f.read()
+
+                  print(f'README Analysis ({readme}):')
+                  print(f'- Length: {len(content)} characters')
+                  print(f'- Lines: {len(content.splitlines())}')
+
+                  # Check for essential sections
+                  essential_sections = ['installation', 'usage', 'api', 'setup']
+                  found_sections = []
+
+                  for section in essential_sections:
+                      if section.lower() in content.lower():
+                          found_sections.append(section)
+
+                  print(f'- Essential sections found: {len(found_sections)}/{len(essential_sections)}')
+
+                  if len(found_sections) >= 3:
+                      print('✅ README has good content')
+                  else:
+                      print('⚠️ README could be improved')
+
+                  readme_found = True
+                  break
+
+          if not readme_found:
+              print('❌ No README file found')
+          "
+
+      - name: Upload documentation reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: documentation-reports
+          path: |
+            docstring-coverage.txt
+            interrogate-badge.svg
+
+  dependency-analysis:
+    name: Dependency Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependency analysis tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install pipdeptree pip-licenses johnnydep
+
+      - name: Analyze dependencies
+        run: |
+          # Install project dependencies
+          pip install -r requirements.txt
+
+          # Generate dependency tree
+          pipdeptree --json > dependency-tree.json
+          pipdeptree > dependency-tree.txt
+
+          # Check for license compatibility
+          pip-licenses --format=json --output-file=licenses.json
+          pip-licenses --format=html --output-file=licenses.html
+
+          # Analyze dependency freshness
+          python -c "
+          import json
+          import subprocess
+
+          # Get outdated packages
+          result = subprocess.run(['pip', 'list', '--outdated', '--format=json'],
+                                 capture_output=True, text=True)
+
+          if result.returncode == 0:
+              outdated = json.loads(result.stdout)
+
+              print(f'Dependency Analysis:')
+              print(f'- Outdated packages: {len(outdated)}')
+
+              if outdated:
+                  print('\\nOutdated packages:')
+                  for pkg in outdated[:10]:  # Show first 10
+                      print(f'  - {pkg[\"name\"]}: {pkg[\"version\"]} -> {pkg[\"latest_version\"]}')
+
+              # Check for security-critical packages
+              critical_packages = ['django', 'fastapi', 'requests', 'urllib3']
+              outdated_critical = [pkg for pkg in outdated if pkg['name'].lower() in critical_packages]
+
+              if outdated_critical:
+                  print(f'\\n⚠️ Critical packages needing updates: {len(outdated_critical)}')
+                  for pkg in outdated_critical:
+                      print(f'  - {pkg[\"name\"]}: {pkg[\"version\"]} -> {pkg[\"latest_version\"]}')
+              else:
+                  print('\\n✅ All critical packages are up to date')
+          "
+
+      - name: Check for duplicate dependencies
+        run: |
+          python -c "
+          import json
+
+          with open('dependency-tree.json', 'r') as f:
+              deps = json.load(f)
+
+          # Find packages with multiple versions
+          package_versions = {}
+          for pkg in deps:
+              name = pkg['package']['package_name']
+              version = pkg['package']['installed_version']
+
+              if name in package_versions:
+                  package_versions[name].append(version)
+              else:
+                  package_versions[name] = [version]
+
+          duplicates = {name: versions for name, versions in package_versions.items()
+                       if len(set(versions)) > 1}
+
+          if duplicates:
+              print('⚠️ Packages with multiple versions:')
+              for name, versions in duplicates.items():
+                  print(f'  - {name}: {set(versions)}')
+          else:
+              print('✅ No duplicate package versions found')
+          "
+
+      - name: Upload dependency reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: dependency-analysis
+          path: |
+            dependency-tree.json
+            dependency-tree.txt
+            licenses.json
+            licenses.html
+
+  test-coverage-analysis:
+    name: Test Coverage Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest-asyncio httpx asgi-lifespan pytest-django pytest-cov coverage
+
+      - name: Set up environment
+        run: |
+          echo "DATABASE_URL=sqlite:///test.db" >> $GITHUB_ENV
+          echo "DJANGO_SETTINGS_MODULE=core_django.core.settings" >> $GITHUB_ENV
+          echo "TESTING=True" >> $GITHUB_ENV
+
+      - name: Run tests with coverage
+        run: |
+          python run_tests.py --coverage || true
+
+      - name: Generate coverage reports
+        run: |
+          coverage html --directory=coverage-html
+          coverage json --output-file=coverage.json
+          coverage report > coverage-report.txt
+
+      - name: Analyze coverage
+        run: |
+          python -c "
+          import json
+
+          try:
+              with open('coverage.json', 'r') as f:
+                  coverage_data = json.load(f)
+
+              total_coverage = coverage_data['totals']['percent_covered']
+
+              print(f'Coverage Analysis:')
+              print(f'- Total coverage: {total_coverage:.1f}%')
+
+              # Check coverage by file
+              low_coverage_files = []
+              for filename, data in coverage_data['files'].items():
+                  file_coverage = data['summary']['percent_covered']
+                  if file_coverage < 80:
+                      low_coverage_files.append((filename, file_coverage))
+
+              if low_coverage_files:
+                  print(f'\\nFiles with low coverage (<80%):')
+                  for filename, coverage in low_coverage_files[:10]:
+                      print(f'  - {filename}: {coverage:.1f}%')
+              else:
+                  print('\\n✅ All files have good test coverage')
+
+              # Coverage quality gates
+              if total_coverage >= 80:
+                  print('\\n✅ Coverage threshold met (≥80%)')
+              else:
+                  print(f'\\n❌ Coverage below threshold: {total_coverage:.1f}% < 80%')
+
+          except FileNotFoundError:
+              print('No coverage data available')
+          "
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: coverage-reports
+          path: |
+            coverage.json
+            coverage.xml
+            coverage-html/
+            coverage-report.txt

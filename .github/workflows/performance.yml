@@ -1,0 +1,335 @@
+name: Performance Monitoring
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * 0" # Run every Sunday at 4 AM UTC
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  api-performance:
+    name: API Performance Benchmarks
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres # pragma: allowlist secret
+          POSTGRES_USER: postgres
+          POSTGRES_DB: weather_bench
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest-asyncio httpx asgi-lifespan pytest-django pytest-benchmark locust
+
+      - name: Set up environment variables
+        run: |
+          # pragma: allowlist secret
+          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/weather_bench" >> $GITHUB_ENV
+          echo "DJANGO_SETTINGS_MODULE=core_django.core.settings" >> $GITHUB_ENV
+          echo "TESTING=True" >> $GITHUB_ENV
+
+      - name: Setup test database
+        run: |
+          cd core_django
+          python manage.py migrate --settings=core_django.core.settings
+
+      - name: Load performance test data
+        run: |
+          cd core_django
+          python manage.py loaddata --settings=core_django.core.settings || echo "No fixtures available"
+
+          # Create additional test data for performance testing
+          python -c "
+          import os
+          import django
+          os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core_django.core.settings')
+          django.setup()
+
+          from core_django.models.models import WeatherStation, DailyWeather
+          from datetime import date, timedelta
+
+          # Create test stations if they don't exist
+          for i in range(50):
+              station_id = f'PERF{i:03d}'
+              station, created = WeatherStation.objects.get_or_create(
+                  station_id=station_id,
+                  defaults={
+                      'name': f'Performance Test Station {i}',
+                      'state': 'TX',
+                      'latitude': 30.0 + (i * 0.1),
+                      'longitude': -95.0 + (i * 0.1)
+                  }
+              )
+
+              # Create weather data for the last 365 days
+              base_date = date.today() - timedelta(days=365)
+              for day in range(365):
+                  test_date = base_date + timedelta(days=day)
+                  DailyWeather.objects.get_or_create(
+                      station=station,
+                      date=test_date,
+                      defaults={
+                          'max_temp': 250 + (day % 100),
+                          'min_temp': 150 + (day % 80),
+                          'precipitation': (day % 50) * 5
+                      }
+                  )
+
+          print('Performance test data created')
+          "
+
+      - name: Run performance tests
+        run: |
+          python run_tests.py --performance
+
+      - name: Create Locust performance test
+        run: |
+          cat > locustfile.py << 'EOF'
+          from locust import HttpUser, task, between
+          import random
+
+          class WeatherAPIUser(HttpUser):
+              wait_time = between(1, 3)
+
+              def on_start(self):
+                  """Setup test data"""
+                  self.station_ids = [f"PERF{i:03d}" for i in range(50)]
+
+              @task(3)
+              def get_weather_stations(self):
+                  """Test weather stations endpoint"""
+                  self.client.get("/api/v2/weather-stations?page_size=20")
+
+              @task(2)
+              def get_daily_weather(self):
+                  """Test daily weather endpoint"""
+                  params = {
+                      "page_size": 50,
+                      "start_date": "2023-01-01",
+                      "end_date": "2023-12-31"
+                  }
+                  self.client.get("/api/v2/daily-weather", params=params)
+
+              @task(2)
+              def get_weather_with_filters(self):
+                  """Test filtered weather data"""
+                  params = {
+                      "states": ["TX"],
+                      "min_temp": 0,
+                      "max_temp": 40,
+                      "page_size": 30
+                  }
+                  self.client.get("/api/v2/daily-weather", params=params)
+
+              @task(1)
+              def get_yearly_stats(self):
+                  """Test yearly statistics"""
+                  self.client.get("/api/v2/yearly-stats?page_size=20")
+
+              @task(1)
+              def get_health_check(self):
+                  """Test health endpoint"""
+                  self.client.get("/health")
+
+              @task(1)
+              def get_api_docs(self):
+                  """Test documentation"""
+                  self.client.get("/docs/api")
+          EOF
+
+      - name: Start API server
+        run: |
+          cd core_django
+          python -m uvicorn src.main:app --host 0.0.0.0 --port 8000 &
+
+          # Wait for server to start
+          sleep 10
+
+          # Test if server is responding
+          curl -f http://localhost:8000/health || exit 1
+
+      - name: Run Locust load test
+        run: |
+          locust -f locustfile.py --headless \
+            --users 20 \
+            --spawn-rate 2 \
+            --run-time 60s \
+            --host http://localhost:8000 \
+            --html performance-report.html \
+            --csv performance-stats
+
+      - name: Analyze performance results
+        run: |
+          python -c "
+          import json
+          import csv
+
+          # Read Locust stats
+          try:
+              with open('performance-stats_stats.csv', 'r') as f:
+                  reader = csv.DictReader(f)
+                  stats = list(reader)
+
+              print('## Performance Test Results')
+              print('| Endpoint | Requests | Failures | Avg Response Time (ms) | Min (ms) | Max (ms) |')
+              print('|----------|----------|----------|------------------------|----------|----------|')
+
+              for row in stats:
+                  if row['Type'] == 'GET':
+                      name = row['Name']
+                      requests = row['Request Count']
+                      failures = row['Failure Count']
+                      avg_time = float(row['Average Response Time']) if row['Average Response Time'] else 0
+                      min_time = float(row['Min Response Time']) if row['Min Response Time'] else 0
+                      max_time = float(row['Max Response Time']) if row['Max Response Time'] else 0
+
+                      print(f'| {name} | {requests} | {failures} | {avg_time:.1f} | {min_time:.1f} | {max_time:.1f} |')
+
+              # Check for performance thresholds
+              critical_endpoints = ['/api/v2/weather-stations', '/api/v2/daily-weather', '/health']
+              performance_issues = []
+
+              for row in stats:
+                  if row['Type'] == 'GET' and any(endpoint in row['Name'] for endpoint in critical_endpoints):
+                      avg_time = float(row['Average Response Time']) if row['Average Response Time'] else 0
+                      failure_rate = float(row['Failure Count']) / max(1, float(row['Request Count'])) * 100
+
+                      if avg_time > 2000:  # 2 seconds threshold
+                          performance_issues.append(f'{row[\"Name\"]}: Avg response time {avg_time:.1f}ms > 2000ms')
+
+                      if failure_rate > 5:  # 5% failure rate threshold
+                          performance_issues.append(f'{row[\"Name\"]}: Failure rate {failure_rate:.1f}% > 5%')
+
+              if performance_issues:
+                  print('\\n⚠️ Performance Issues Detected:')
+                  for issue in performance_issues:
+                      print(f'- {issue}')
+                  exit(1)
+              else:
+                  print('\\n✅ All performance thresholds met')
+
+          except FileNotFoundError:
+              print('No performance stats file found')
+              exit(1)
+          "
+
+      - name: Memory and resource usage test
+        run: |
+          python -c "
+          import psutil
+          import requests
+          import time
+          import statistics
+
+          # Monitor memory usage during API calls
+          memory_samples = []
+          cpu_samples = []
+
+          for i in range(10):
+              # Make API request
+              try:
+                  response = requests.get('http://localhost:8000/api/v2/daily-weather?page_size=100')
+                  if response.status_code == 200:
+                      # Sample resource usage
+                      memory_samples.append(psutil.virtual_memory().percent)
+                      cpu_samples.append(psutil.cpu_percent(interval=0.1))
+              except:
+                  pass
+
+              time.sleep(1)
+
+          if memory_samples and cpu_samples:
+              avg_memory = statistics.mean(memory_samples)
+              avg_cpu = statistics.mean(cpu_samples)
+              max_memory = max(memory_samples)
+              max_cpu = max(cpu_samples)
+
+              print(f'Resource Usage Results:')
+              print(f'Average Memory: {avg_memory:.1f}%')
+              print(f'Max Memory: {max_memory:.1f}%')
+              print(f'Average CPU: {avg_cpu:.1f}%')
+              print(f'Max CPU: {max_cpu:.1f}%')
+
+              # Resource usage thresholds
+              if max_memory > 80:
+                  print(f'⚠️ High memory usage detected: {max_memory:.1f}%')
+              if max_cpu > 90:
+                  print(f'⚠️ High CPU usage detected: {max_cpu:.1f}%')
+          "
+
+      - name: Upload performance reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: performance-reports
+          path: |
+            performance-report.html
+            performance-stats*.csv
+            test_results/
+
+      - name: Comment PR with performance results
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+
+            try {
+              const statsFile = 'performance-stats_stats.csv';
+              if (fs.existsSync(statsFile)) {
+                const stats = fs.readFileSync(statsFile, 'utf8');
+                const lines = stats.split('\n');
+
+                let comment = '## 🚀 Performance Test Results\n\n';
+                comment += '| Endpoint | Requests | Failures | Avg Response Time (ms) |\n';
+                comment += '|----------|----------|----------|------------------------|\n';
+
+                for (let i = 1; i < lines.length && i < 10; i++) {
+                  const parts = lines[i].split(',');
+                  if (parts.length >= 8 && parts[1] === 'GET') {
+                    const name = parts[0];
+                    const requests = parts[2];
+                    const failures = parts[3];
+                    const avgTime = parseFloat(parts[7]) || 0;
+                    comment += `| ${name} | ${requests} | ${failures} | ${avgTime.toFixed(1)} |\n`;
+                  }
+                }
+
+                comment += '\n📊 [View detailed performance report](../actions/runs/${{ github.run_id }})';
+
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: comment
+                });
+              }
+            } catch (error) {
+              console.log('Could not post performance results:', error.message);
+            }

@@ -1,0 +1,382 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION_DEFAULT: "3.11"
+  NODE_VERSION: "18"
+
+jobs:
+  lint-and-format:
+    name: Lint and Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION_DEFAULT }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff black isort bandit safety
+
+      - name: Run ruff linting
+        run: ruff check . --output-format=github
+
+      - name: Run black formatting check
+        run: black --check --diff .
+
+      - name: Run isort import sorting check
+        run: isort --check-only --diff .
+
+      - name: Run bandit security analysis
+        run: bandit -r src/ -f json -o bandit-report.json || true
+
+      - name: Upload bandit report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: bandit-security-report
+          path: bandit-report.json
+
+  test-matrix:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres # pragma: allowlist secret
+          POSTGRES_USER: postgres
+          POSTGRES_DB: weather_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-${{ matrix.python-version }}-pip-${{ hashFiles('**/requirements.txt', '**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.python-version }}-pip-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest-asyncio httpx asgi-lifespan pytest-django pytest-cov pytest-xdist pytest-html
+
+      - name: Set up environment variables
+        run: |
+          # pragma: allowlist secret
+          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/weather_test" >> $GITHUB_ENV
+          echo "DJANGO_SETTINGS_MODULE=core_django.core.settings" >> $GITHUB_ENV
+          echo "TESTING=True" >> $GITHUB_ENV
+
+      - name: Run Django migrations
+        run: |
+          cd core_django
+          python manage.py migrate --settings=core_django.core.settings
+
+      - name: Load test data
+        run: |
+          cd core_django
+          python manage.py loaddata --settings=core_django.core.settings || echo "No fixtures to load"
+
+      - name: Run smoke tests
+        run: python run_tests.py --smoke
+
+      - name: Run fast tests
+        run: python run_tests.py --fast --coverage
+
+      - name: Run integration tests with coverage
+        run: |
+          python run_tests.py --coverage --ci
+        continue-on-error: false
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        if: matrix.python-version == env.PYTHON_VERSION_DEFAULT
+        with:
+          file: ./coverage.xml
+          flags: integration
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: |
+            test_results/
+            htmlcov/
+            coverage.xml
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION_DEFAULT }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install safety bandit semgrep
+
+      - name: Run safety check for dependencies
+        run: safety check --json --output safety-report.json || true
+
+      - name: Run bandit security scan
+        run: bandit -r src/ core_django/ -f json -o bandit-detailed.json || true
+
+      - name: Run semgrep security scan
+        run: |
+          semgrep --config=auto --json --output=semgrep-report.json src/ core_django/ || true
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            safety-report.json
+            bandit-detailed.json
+            semgrep-report.json
+
+  performance-test:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: test-matrix
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres # pragma: allowlist secret
+          POSTGRES_USER: postgres
+          POSTGRES_DB: weather_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION_DEFAULT }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest-asyncio httpx asgi-lifespan pytest-django pytest-benchmark
+
+      - name: Set up environment variables
+        run: |
+          # pragma: allowlist secret
+          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/weather_test" >> $GITHUB_ENV
+          echo "DJANGO_SETTINGS_MODULE=core_django.core.settings" >> $GITHUB_ENV
+          echo "TESTING=True" >> $GITHUB_ENV
+
+      - name: Run Django migrations
+        run: |
+          cd core_django
+          python manage.py migrate --settings=core_django.core.settings
+
+      - name: Run performance tests
+        run: python run_tests.py --performance
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: performance-results
+          path: test_results/
+
+  documentation-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION_DEFAULT }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest-asyncio httpx asgi-lifespan pytest-django
+
+      - name: Set up environment variables
+        run: |
+          echo "DATABASE_URL=sqlite:///test.db" >> $GITHUB_ENV
+          echo "DJANGO_SETTINGS_MODULE=core_django.core.settings" >> $GITHUB_ENV
+          echo "TESTING=True" >> $GITHUB_ENV
+
+      - name: Test documentation endpoints
+        run: python run_tests.py --module documentation
+
+      - name: Check OpenAPI schema generation
+        run: |
+          cd core_django
+          python -c "
+          import django
+          django.setup()
+          from src.main import app
+          import json
+          schema = app.openapi()
+          with open('openapi-schema.json', 'w') as f:
+              json.dump(schema, f, indent=2)
+          print('OpenAPI schema generated successfully')
+          "
+
+      - name: Upload OpenAPI schema
+        uses: actions/upload-artifact@v3
+        with:
+          name: openapi-schema
+          path: core_django/openapi-schema.json
+
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.api
+          push: false
+          tags: weather-api:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  dependency-check:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION_DEFAULT }}
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Run pip-audit
+        run: pip-audit --format=json --output=pip-audit-report.json || true
+
+      - name: Upload dependency audit report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: dependency-audit-report
+          path: pip-audit-report.json
+
+  build-summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs:
+      [
+        lint-and-format,
+        test-matrix,
+        security-scan,
+        documentation-check,
+        docker-build,
+        dependency-check,
+      ]
+    if: always()
+    steps:
+      - name: Check build status
+        run: |
+          echo "Build Summary:"
+          echo "Lint and Format: ${{ needs.lint-and-format.result }}"
+          echo "Tests: ${{ needs.test-matrix.result }}"
+          echo "Security Scan: ${{ needs.security-scan.result }}"
+          echo "Documentation Check: ${{ needs.documentation-check.result }}"
+          echo "Docker Build: ${{ needs.docker-build.result }}"
+          echo "Dependency Check: ${{ needs.dependency-check.result }}"
+
+          if [[ "${{ needs.lint-and-format.result }}" == "failure" ||
+                "${{ needs.test-matrix.result }}" == "failure" ||
+                "${{ needs.documentation-check.result }}" == "failure" ||
+                "${{ needs.docker-build.result }}" == "failure" ]]; then
+            echo "❌ Build failed - check the failed jobs above"
+            exit 1
+          else
+            echo "✅ Build successful - all critical jobs passed"
+          fi

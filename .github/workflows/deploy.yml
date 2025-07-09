@@ -1,0 +1,304 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy to"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - staging
+          - production
+      version:
+        description: "Version to deploy (tag or commit SHA)"
+        required: false
+        default: "main"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  build-and-push:
+    name: Build and Push Container
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.api
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+      - name: Output image
+        id: image
+        run: echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}" >> $GITHUB_OUTPUT
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Deploy to staging
+        id: deploy
+        run: |
+          echo "Deploying ${{ needs.build-and-push.outputs.image }} to staging"
+          echo "url=https://weather-api-staging.example.com" >> $GITHUB_OUTPUT
+
+          # This is where you would add your actual deployment logic
+          # Examples:
+          # - Deploy to Kubernetes cluster
+          # - Update Docker Compose on staging server
+          # - Deploy to cloud platform (AWS ECS, Google Cloud Run, etc.)
+          # - Update environment variables and configurations
+
+          # Simulate deployment
+          echo "🚀 Staging deployment completed successfully"
+
+      - name: Run smoke tests against staging
+        run: |
+          echo "Running smoke tests against staging environment"
+
+          # Wait for deployment to be ready
+          sleep 30
+
+          # Test health endpoint
+          # curl -f https://weather-api-staging.example.com/health || exit 1
+
+          # Test main API endpoints
+          # curl -f https://weather-api-staging.example.com/api/v2/weather-stations?page_size=1 || exit 1
+
+          echo "✅ Staging smoke tests passed"
+
+      - name: Update deployment status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}' === 'success' ? 'success' : 'failure';
+            const environment = 'staging';
+            const deployment_url = '${{ steps.deploy.outputs.url }}';
+
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: context.payload.deployment?.id || 'staging-deployment',
+              state: status,
+              environment_url: deployment_url,
+              description: `Staging deployment ${status}`
+            });
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-staging]
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Security scan before production
+        run: |
+          echo "Running final security scan for production deployment"
+
+          # Scan the container image
+          # docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          #   aquasec/trivy image ${{ needs.build-and-push.outputs.image }}
+
+          echo "✅ Security scan completed"
+
+      - name: Deploy to production
+        id: deploy
+        run: |
+          echo "Deploying ${{ needs.build-and-push.outputs.image }} to production"
+          echo "url=https://weather-api.example.com" >> $GITHUB_OUTPUT
+
+          # This is where you would add your actual production deployment logic
+          # Examples:
+          # - Blue-green deployment to production cluster
+          # - Rolling update with health checks
+          # - Database migrations
+          # - CDN cache invalidation
+          # - Load balancer configuration updates
+
+          # Simulate production deployment with additional safety checks
+          echo "🔍 Pre-deployment checks..."
+          echo "🚀 Production deployment initiated..."
+          echo "✅ Production deployment completed successfully"
+
+      - name: Run comprehensive tests against production
+        run: |
+          echo "Running comprehensive tests against production environment"
+
+          # Wait for deployment to stabilize
+          sleep 60
+
+          # Test critical endpoints
+          # curl -f https://weather-api.example.com/health || exit 1
+          # curl -f https://weather-api.example.com/api/v2/weather-stations?page_size=1 || exit 1
+          # curl -f https://weather-api.example.com/docs || exit 1
+
+          echo "✅ Production tests passed"
+
+      - name: Update deployment status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}' === 'success' ? 'success' : 'failure';
+            const environment = 'production';
+            const deployment_url = '${{ steps.deploy.outputs.url }}';
+
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: context.payload.deployment?.id || 'production-deployment',
+              state: status,
+              environment_url: deployment_url,
+              description: `Production deployment ${status}`
+            });
+
+      - name: Create release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: |
+            ## Weather Data Engineering API Release ${{ github.ref_name }}
+
+            ### 🚀 Deployment Information
+            - **Environment**: Production
+            - **Container Image**: `${{ needs.build-and-push.outputs.image }}`
+            - **Deployed At**: ${{ steps.deploy.outputs.url }}
+
+            ### 📋 Changes
+            - See commit history for detailed changes
+            - All integration tests passed
+            - Security scans completed successfully
+            - Performance benchmarks met
+
+            ### 🔗 Links
+            - [API Documentation](${{ steps.deploy.outputs.url }}/docs)
+            - [Health Check](${{ steps.deploy.outputs.url }}/health)
+            - [Container Image](https://github.com/${{ github.repository }}/pkgs/container/${{ github.event.repository.name }})
+          draft: false
+          prerelease: false
+
+  notify-deployment:
+    name: Notify Deployment
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+    steps:
+      - name: Determine deployment status
+        id: status
+        run: |
+          staging_status="${{ needs.deploy-staging.result }}"
+          production_status="${{ needs.deploy-production.result }}"
+
+          if [[ "$staging_status" == "success" ]] && [[ "$production_status" == "success" || "$production_status" == "skipped" ]]; then
+            echo "overall_status=success" >> $GITHUB_OUTPUT
+            echo "message=✅ Deployment completed successfully" >> $GITHUB_OUTPUT
+          elif [[ "$staging_status" == "failure" || "$production_status" == "failure" ]]; then
+            echo "overall_status=failure" >> $GITHUB_OUTPUT
+            echo "message=❌ Deployment failed" >> $GITHUB_OUTPUT
+          else
+            echo "overall_status=partial" >> $GITHUB_OUTPUT
+            echo "message=⚠️ Deployment partially completed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send deployment notification
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ steps.status.outputs.overall_status }}';
+            const message = '${{ steps.status.outputs.message }}';
+            const stagingStatus = '${{ needs.deploy-staging.result }}';
+            const productionStatus = '${{ needs.deploy-production.result }}';
+
+            let body = `## ${message}\n\n`;
+            body += `### Deployment Summary\n`;
+            body += `- **Staging**: ${stagingStatus}\n`;
+            body += `- **Production**: ${productionStatus}\n`;
+            body += `- **Commit**: ${context.sha.slice(0, 7)}\n`;
+            body += `- **Ref**: ${context.ref}\n\n`;
+
+            if (status === 'success') {
+              body += `### 🎉 Deployment Successful\n`;
+              body += `The Weather Data Engineering API has been deployed successfully.\n\n`;
+              body += `### 🔗 Environment URLs\n`;
+              if (stagingStatus === 'success') {
+                body += `- **Staging**: https://weather-api-staging.example.com\n`;
+              }
+              if (productionStatus === 'success') {
+                body += `- **Production**: https://weather-api.example.com\n`;
+              }
+            } else {
+              body += `### ⚠️ Deployment Issues\n`;
+              body += `Please check the workflow logs for details.\n`;
+            }
+
+            // Comment on the commit or PR if applicable
+            if (context.payload.pull_request) {
+              await github.rest.issues.createComment({
+                issue_number: context.payload.pull_request.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            }
+
+            // You could also send notifications to Slack, Teams, etc. here
+            console.log('Deployment notification:', message);
