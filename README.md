@@ -18,6 +18,99 @@ This project implements a complete data pipeline for weather station data, featu
 
 ## 🏗️ Architecture
 
+### System Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph "External"
+        Users[Users/Clients]
+        Internet[Internet]
+    end
+
+    subgraph "AWS Cloud"
+        subgraph "Public Subnets"
+            ALB[Application Load Balancer]
+            NAT[NAT Gateway]
+        end
+
+        subgraph "Private Subnets"
+            ECS[ECS Fargate<br/>Weather API]
+            RDS[(PostgreSQL RDS<br/>Weather Database)]
+        end
+
+        subgraph "Container Registry"
+            ECR[Amazon ECR<br/>Docker Images]
+        end
+
+        subgraph "Storage & Data"
+            S3[S3 Buckets<br/>Data Storage & Logs]
+        end
+
+        subgraph "Monitoring & Logging"
+            CW[CloudWatch<br/>Metrics & Logs]
+            SNS[SNS Topics<br/>Alerts]
+        end
+
+        subgraph "Networking"
+            VPC[VPC - 10.0.0.0/16]
+            IGW[Internet Gateway]
+        end
+    end
+
+    %% External connections
+    Users --> Internet
+    Internet --> IGW
+    IGW --> ALB
+
+    %% Load balancer to application
+    ALB --> ECS
+
+    %% Application to database
+    ECS --> RDS
+
+    %% Container registry
+    ECR --> ECS
+
+    %% Storage connections
+    ECS --> S3
+
+    %% Monitoring connections
+    ECS --> CW
+    ALB --> CW
+    RDS --> CW
+    CW --> SNS
+
+    %% Network routing
+    ECS --> NAT
+    NAT --> IGW
+
+    %% Styling
+    classDef aws fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#FFFFFF
+    classDef database fill:#3F48CC,stroke:#232F3E,stroke-width:2px,color:#FFFFFF
+    classDef compute fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#FFFFFF
+    classDef storage fill:#569A31,stroke:#232F3E,stroke-width:2px,color:#FFFFFF
+    classDef network fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#FFFFFF
+    classDef external fill:#232F3E,stroke:#FF9900,stroke-width:2px,color:#FFFFFF
+
+    class ALB,ECS,ECR,CW,SNS aws
+    class RDS database
+    class S3 storage
+    class VPC,IGW,NAT network
+    class Users,Internet external
+```
+
+### Data Flow
+
+1. **External Access**: Users access the API through the internet via the Application Load Balancer
+2. **Load Balancing**: ALB distributes traffic across ECS Fargate containers in private subnets
+3. **API Processing**: ECS containers process requests using the FastAPI framework
+4. **Data Access**: Application queries PostgreSQL RDS for weather data and statistics
+5. **File Storage**: Raw data files and logs are stored in S3 buckets
+6. **Container Management**: Docker images are stored and managed in Amazon ECR
+7. **Monitoring**: CloudWatch collects metrics and logs from all components
+8. **Alerting**: SNS sends notifications based on CloudWatch alarms
+9. **Network Security**: Private subnets protect backend services, NAT Gateway enables outbound internet access
+
 ### Data Models
 
 - `WeatherStation`: Station metadata and geographic information
@@ -27,11 +120,17 @@ This project implements a complete data pipeline for weather station data, featu
 
 ### Technology Stack
 
-- **Database**: PostgreSQL with optimized indexing strategy
+- **Cloud Platform**: Amazon Web Services (AWS)
+- **Infrastructure**: Terraform for Infrastructure as Code
+- **Compute**: ECS Fargate for serverless containers
+- **Database**: PostgreSQL RDS with optimized indexing strategy
 - **API Framework**: FastAPI with automatic OpenAPI documentation
 - **ORM**: Django ORM for robust data modeling
 - **Containerization**: Docker with multi-stage builds
-- **Infrastructure**: Terraform for AWS deployment
+- **Monitoring**: CloudWatch for metrics, logging, and alerting
+- **Storage**: S3 for object storage and data archival
+- **Load Balancing**: Application Load Balancer with health checks
+- **Networking**: VPC with public/private subnets across multiple AZs
 
 ## 🚀 Quick Start
 
