@@ -111,6 +111,11 @@ app.add_middleware(
 # Compression middleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+# ETag middleware for HTTP caching
+from src.middleware.etag_middleware import ETagMiddleware  # noqa: E402
+
+app.add_middleware(ETagMiddleware, enable_caching=True)
+
 
 # Custom middleware for request logging
 @app.middleware("http")
